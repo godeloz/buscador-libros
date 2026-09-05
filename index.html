@@ -1,0 +1,1261 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catálogo del Salón — Ítaca Librería-Bar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#F5F5F7;
+  --surface:#FFFFFF;
+  --surface-2:#FAFAFC;
+  --separador:rgba(60,60,67,0.12);
+  --separador-fuerte:rgba(60,60,67,0.22);
+  --texto:#1D1D1F;
+  --texto-2:#6E6E73;
+  --texto-3:#8E8E93;
+  --azul:#0071E3;
+  --azul-hover:#0077ED;
+  --azul-suave:rgba(0,113,227,0.10);
+  --c-todo:#0071E3;
+  --c-titulo:#5B54D6;
+  --c-autor:#0E8A6C;
+  --c-editorial:#B2551F;
+  --verde:#1D8348;
+  --ambar:#B8860B;
+  --rojo:#C0392B;
+  --cat-narrativa:#C0553C;
+  --cat-poesia:#0E8A6C;
+  --cat-terror:#5B54D6;
+  --cat-ensayo:#B8860B;
+  --cat-infantil:#0071E3;
+  --cat-arte:#A63C74;
+  --cat-comic:#CC7A29;
+  --cat-otras:#6E6E73;
+  --cat-sin:#A0A0A6;
+  --r-sm:8px;
+  --r-md:12px;
+  --r-lg:18px;
+  --r-xl:22px;
+  --sombra:0 1px 3px rgba(0,0,0,0.05), 0 4px 14px rgba(0,0,0,0.04);
+  --sombra-alta:0 12px 40px rgba(0,0,0,0.14);
+  --ease:cubic-bezier(0.22,0.61,0.36,1);
+}
+*{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--texto);
+  font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  font-size:16px;
+  line-height:1.47;
+  -webkit-font-smoothing:antialiased;
+}
+button{font-family:inherit;}
+.wrap{max-width:940px;margin:0 auto;padding:0 22px;}
+
+header.top{
+  position:sticky;top:0;z-index:50;
+  background:rgba(245,245,247,0.82);
+  backdrop-filter:saturate(180%) blur(20px);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid var(--separador);
+}
+.top-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;height:54px;}
+.marca{font-size:0.94rem;font-weight:600;letter-spacing:-0.01em;}
+.marca span{color:var(--texto-2);font-weight:400;}
+
+.nav-seg{
+  display:inline-flex;
+  background:rgba(120,120,128,0.12);
+  border-radius:10px;padding:2px;gap:2px;
+}
+.nav-seg button{
+  border:none;background:none;
+  font-size:0.86rem;font-weight:500;color:var(--texto);
+  padding:6px 14px;border-radius:8px;cursor:pointer;
+  transition:background .22s var(--ease);white-space:nowrap;
+}
+.nav-seg button.on{
+  background:var(--surface);font-weight:600;
+  box-shadow:0 1px 3px rgba(0,0,0,0.08);
+}
+
+.seccion{display:none;padding:34px 0 70px;}
+.seccion.visible{display:block;animation:aparecer .3s var(--ease);}
+@keyframes aparecer{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+h1.titulo-seccion{font-size:clamp(1.7rem,4.4vw,2.4rem);font-weight:700;letter-spacing:-0.022em;margin:0 0 6px;}
+.sub-seccion{color:var(--texto-2);font-size:1rem;margin:0 0 26px;}
+
+.fila-busqueda{display:flex;gap:10px;}
+.campo{position:relative;flex:1;}
+.campo input[type=text]{
+  width:100%;font-size:1.02rem;font-family:inherit;
+  padding:14px 18px;
+  border:1px solid var(--separador-fuerte);
+  border-radius:var(--r-md);
+  background:var(--surface);color:var(--texto);
+  transition:border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.campo input[type=text]::placeholder{color:var(--texto-3);}
+.campo input[type=text]:focus{outline:none;border-color:var(--azul);box-shadow:0 0 0 4px var(--azul-suave);}
+.btn-primario{
+  border:none;background:var(--azul);color:#fff;
+  font-size:0.98rem;font-weight:600;
+  padding:0 26px;border-radius:var(--r-md);cursor:pointer;
+  transition:background .2s var(--ease), transform .12s var(--ease);
+}
+.btn-primario:hover{background:var(--azul-hover);}
+.btn-primario:active{transform:scale(0.975);}
+:focus-visible{outline:3px solid var(--azul);outline-offset:2px;}
+
+.autocomplete{
+  position:absolute;top:calc(100% + 6px);left:0;right:0;
+  background:var(--surface);border-radius:var(--r-md);
+  box-shadow:var(--sombra-alta);z-index:40;
+  max-height:330px;overflow-y:auto;border:1px solid var(--separador);
+}
+.autocomplete[hidden]{display:none;}
+.autocomplete button{
+  display:flex;justify-content:space-between;gap:12px;align-items:center;
+  width:100%;text-align:left;padding:11px 16px;
+  background:none;border:none;border-bottom:1px solid var(--separador);
+  font-size:0.94rem;color:var(--texto);cursor:pointer;
+}
+.autocomplete button:last-child{border-bottom:none;}
+.autocomplete button:hover,.autocomplete button.activa{background:var(--surface-2);}
+.autocomplete .tipo{font-size:0.76rem;color:var(--texto-3);white-space:nowrap;}
+
+.criterios{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;}
+.etiqueta-criterio{
+  border:1.5px solid var(--separador-fuerte);
+  background:var(--surface);color:var(--texto-2);
+  font-size:0.97rem;font-weight:500;
+  padding:9px 20px;border-radius:var(--r-xl);cursor:pointer;
+  transition:all .22s var(--ease);
+}
+.etiqueta-criterio:hover{border-color:var(--texto-3);}
+.etiqueta-criterio:active{transform:scale(0.97);}
+.etiqueta-criterio.on{color:#fff;font-weight:600;border-color:transparent;}
+.etiqueta-criterio.on[data-crit=todo]{background:var(--c-todo);}
+.etiqueta-criterio.on[data-crit=titulo]{background:var(--c-titulo);}
+.etiqueta-criterio.on[data-crit=autor]{background:var(--c-autor);}
+.etiqueta-criterio.on[data-crit=editorial]{background:var(--c-editorial);}
+
+.barra-resultados{
+  display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:10px;margin:30px 0 14px;
+  font-size:0.9rem;color:var(--texto-2);
+}
+select.orden{
+  font-family:inherit;font-size:0.88rem;
+  border:1px solid var(--separador-fuerte);
+  background:var(--surface);color:var(--texto);
+  padding:7px 10px;border-radius:var(--r-sm);cursor:pointer;
+}
+.lista{display:flex;flex-direction:column;gap:9px;}
+.item{
+  display:flex;align-items:stretch;
+  background:var(--surface);border-radius:var(--r-md);
+  box-shadow:var(--sombra);cursor:pointer;width:100%;text-align:left;
+  border:1px solid transparent;padding:0;overflow:hidden;
+  transition:transform .18s var(--ease), box-shadow .18s var(--ease);
+}
+.item:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,0.09);}
+.item:active{transform:scale(0.994);}
+.item .franja{width:5px;flex-shrink:0;}
+.item .cuerpo{padding:14px 18px;flex:1;min-width:0;}
+.item .l1{display:flex;justify-content:space-between;gap:16px;align-items:baseline;}
+.item h3{font-size:1.02rem;font-weight:600;letter-spacing:-0.01em;margin:0;line-height:1.3;}
+.item .precio{font-size:0.95rem;font-weight:600;white-space:nowrap;}
+.item .precio.pend{color:var(--texto-3);font-weight:400;font-size:0.86rem;}
+.item .l2{margin-top:4px;font-size:0.89rem;color:var(--texto-2);display:flex;gap:9px;flex-wrap:wrap;align-items:center;}
+.punto{display:inline-flex;align-items:center;gap:5px;font-size:0.85rem;}
+.punto::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--texto-3);}
+.punto[data-e="Disponible"]::before{background:var(--verde);}
+.punto[data-e="Últimas unidades"]::before{background:var(--ambar);}
+.punto[data-e="Agotado"]::before{background:var(--rojo);}
+.sep-punto{color:var(--separador-fuerte);}
+
+.btn-secundario{
+  display:block;margin:26px auto 0;padding:11px 28px;
+  background:var(--surface);color:var(--azul);
+  border:1px solid var(--separador-fuerte);border-radius:var(--r-xl);
+  font-size:0.94rem;font-weight:600;cursor:pointer;
+  transition:background .2s var(--ease);
+}
+.btn-secundario:hover{background:var(--azul-suave);}
+
+.vacio{
+  background:var(--surface);border-radius:var(--r-lg);
+  padding:44px 30px;text-align:center;box-shadow:var(--sombra);
+}
+.vacio strong{display:block;font-size:1.1rem;margin-bottom:6px;letter-spacing:-0.01em;}
+.vacio span{color:var(--texto-2);font-size:0.94rem;}
+
+.bloque-top{margin-top:40px;}
+.bloque-top h2{font-size:1.24rem;font-weight:600;letter-spacing:-0.015em;margin:0 0 4px;}
+.bloque-top .nota{color:var(--texto-2);font-size:0.9rem;margin:0 0 16px;}
+.rank{
+  display:flex;align-items:center;gap:14px;
+  background:var(--surface);border-radius:var(--r-md);
+  padding:12px 18px;box-shadow:var(--sombra);
+  cursor:pointer;width:100%;text-align:left;border:none;
+  transition:transform .18s var(--ease);
+}
+.rank:hover{transform:translateY(-1px);}
+.rank .n{font-size:1.05rem;font-weight:700;color:var(--texto-3);width:22px;flex-shrink:0;text-align:center;}
+.rank .txt{flex:1;min-width:0;}
+.rank .txt strong{display:block;font-size:0.98rem;font-weight:600;letter-spacing:-0.01em;}
+.rank .txt span{font-size:0.86rem;color:var(--texto-2);}
+.rank .veces{font-size:0.82rem;color:var(--texto-3);white-space:nowrap;}
+
+.tarjeta-filtro{
+  background:var(--surface);border-radius:var(--r-lg);
+  padding:24px 26px;box-shadow:var(--sombra);margin-bottom:16px;
+}
+.tarjeta-filtro h2{font-size:1.06rem;font-weight:600;letter-spacing:-0.012em;margin:0 0 4px;}
+.tarjeta-filtro .ayuda{color:var(--texto-2);font-size:0.87rem;margin:0 0 20px;}
+
+.slider{
+  position:relative;height:26px;
+  margin:14px 14px 52px;
+  touch-action:none;
+}
+.slider .pista{
+  position:absolute;top:11px;left:0;right:0;height:4px;
+  background:rgba(120,120,128,0.18);border-radius:2px;
+}
+.slider .pista-activa{position:absolute;top:11px;height:4px;background:var(--azul);border-radius:2px;}
+.thumb{
+  position:absolute;top:0;width:26px;height:26px;
+  margin-left:-13px;border-radius:50%;
+  background:#fff;border:0.5px solid rgba(0,0,0,0.06);
+  box-shadow:0 1px 4px rgba(0,0,0,0.25);
+  cursor:grab;touch-action:none;
+  transition:transform .12s var(--ease), box-shadow .12s var(--ease);
+}
+.thumb:hover{box-shadow:0 2px 8px rgba(0,0,0,0.3);}
+.thumb.arrastrando{cursor:grabbing;transform:scale(1.12);}
+.thumb:focus-visible{outline:3px solid var(--azul);outline-offset:3px;}
+.burbuja{
+  position:absolute;top:34px;left:50%;transform:translateX(-50%);
+  font-size:0.88rem;font-weight:600;color:var(--texto);
+  background:var(--surface);
+  padding:3px 10px;border-radius:var(--r-sm);
+  border:1px solid var(--separador);
+  white-space:nowrap;pointer-events:none;
+}
+.limites-slider{
+  display:flex;justify-content:space-between;
+  font-size:0.78rem;color:var(--texto-3);
+  margin:0 0 4px;
+}
+.barra-aplicar{
+  position:sticky;bottom:0;z-index:20;
+  display:flex;gap:12px;align-items:center;flex-wrap:wrap;
+  background:rgba(245,245,247,0.9);
+  backdrop-filter:saturate(180%) blur(16px);
+  -webkit-backdrop-filter:saturate(180%) blur(16px);
+  padding:14px 0;margin-top:4px;
+  border-top:1px solid var(--separador);
+}
+.pendiente-aviso{font-size:0.86rem;color:var(--texto-2);}
+.pendiente-aviso.cambios{color:var(--azul);font-weight:500;}
+
+.chips{display:flex;flex-wrap:wrap;gap:9px;}
+.chip{
+  font-size:0.89rem;font-weight:500;padding:8px 15px;
+  border:1px solid var(--separador-fuerte);border-radius:var(--r-xl);
+  background:var(--surface);color:var(--texto-2);cursor:pointer;
+  transition:all .2s var(--ease);
+}
+.chip:hover{border-color:var(--texto-3);}
+.chip:active{transform:scale(0.97);}
+.chip.on{background:var(--texto);border-color:var(--texto);color:#fff;font-weight:600;}
+.acciones-filtro{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+.link-plano{background:none;border:none;color:var(--azul);font-size:0.92rem;font-weight:500;cursor:pointer;padding:8px 0;}
+
+.grid-editoriales{display:flex;flex-direction:column;gap:9px;}
+.card-editorial{
+  display:flex;justify-content:space-between;align-items:center;gap:16px;
+  background:var(--surface);border-radius:var(--r-md);
+  padding:16px 20px;box-shadow:var(--sombra);
+  cursor:pointer;width:100%;text-align:left;border:none;
+  transition:transform .18s var(--ease), box-shadow .18s var(--ease);
+}
+.card-editorial:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,0.09);}
+.card-editorial .nom{font-size:1.02rem;font-weight:600;letter-spacing:-0.01em;display:block;}
+.card-editorial .detalle{font-size:0.86rem;color:var(--texto-2);margin-top:3px;display:block;}
+.card-editorial .flecha{color:var(--texto-3);font-size:1.2rem;flex-shrink:0;}
+.volver{background:none;border:none;color:var(--azul);font-size:0.95rem;font-weight:500;cursor:pointer;padding:0;margin-bottom:16px;}
+
+.fondo-modal{
+  position:fixed;inset:0;z-index:100;
+  background:rgba(0,0,0,0.42);
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  display:flex;align-items:flex-start;justify-content:center;
+  padding:6vh 18px 40px;overflow-y:auto;
+  animation:fundido .22s var(--ease);
+}
+.fondo-modal[hidden]{display:none;}
+@keyframes fundido{from{opacity:0;}to{opacity:1;}}
+.modal{
+  background:var(--surface);border-radius:var(--r-xl);
+  max-width:500px;width:100%;box-shadow:var(--sombra-alta);
+  overflow:hidden;animation:subir .3s var(--ease);
+}
+@keyframes subir{from{opacity:0;transform:translateY(18px) scale(0.985);}to{opacity:1;transform:none;}}
+.portada{
+  padding:38px 30px 30px;color:#fff;position:relative;
+  display:flex;flex-direction:column;justify-content:flex-end;min-height:170px;
+}
+.portada .cat{font-size:0.79rem;opacity:0.88;margin-bottom:10px;font-weight:500;}
+.portada h2{font-size:1.55rem;font-weight:700;letter-spacing:-0.02em;line-height:1.18;margin:0 0 6px;}
+.portada .aut{font-size:0.98rem;opacity:0.92;}
+.cerrar{
+  position:absolute;top:16px;right:16px;
+  width:30px;height:30px;border-radius:50%;
+  background:rgba(255,255,255,0.24);border:none;color:#fff;
+  font-size:0.95rem;cursor:pointer;line-height:1;
+  transition:background .2s var(--ease);
+}
+.cerrar:hover{background:rgba(255,255,255,0.36);}
+.modal-cuerpo{padding:8px 30px 30px;}
+.campo-det{
+  display:flex;justify-content:space-between;gap:16px;
+  padding:13px 0;border-bottom:1px solid var(--separador);font-size:0.94rem;
+}
+.campo-det:last-of-type{border-bottom:none;}
+.campo-det .k{color:var(--texto-2);flex-shrink:0;}
+.campo-det .v{text-align:right;font-weight:500;}
+.nota-mat{margin-top:14px;font-size:0.79rem;color:var(--texto-3);line-height:1.5;}
+
+.modal-admin{padding:32px 30px;}
+.modal-admin h2{font-size:1.24rem;font-weight:700;letter-spacing:-0.015em;margin:0 0 6px;}
+.modal-admin p.ayuda{color:var(--texto-2);font-size:0.9rem;margin:0 0 20px;}
+.modal-admin input{
+  width:100%;font-size:1rem;font-family:inherit;
+  padding:13px 15px;margin-bottom:11px;
+  border:1px solid var(--separador-fuerte);border-radius:var(--r-md);
+  background:var(--surface-2);color:var(--texto);
+}
+.modal-admin input:focus{outline:none;border-color:var(--azul);box-shadow:0 0 0 4px var(--azul-suave);}
+.modal-admin .btn-primario{width:100%;padding:13px;margin-top:4px;}
+.msg-error{color:var(--rojo);font-size:0.88rem;margin:10px 0 0;}
+
+.zona-drop{
+  border:1.5px dashed var(--separador-fuerte);
+  border-radius:var(--r-md);padding:22px;text-align:center;background:var(--surface-2);
+}
+.zona-drop input[type=file]{font-family:inherit;font-size:0.88rem;}
+.resumen{margin-top:16px;padding:16px 18px;background:var(--azul-suave);border-radius:var(--r-md);font-size:0.9rem;line-height:1.65;}
+.resumen[hidden]{display:none;}
+
+footer.pie{border-top:1px solid var(--separador);padding:26px 0 40px;font-size:0.82rem;color:var(--texto-3);}
+.pie-inner{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;}
+.btn-acceso{
+  background:none;border:none;color:var(--texto-3);font-size:0.78rem;
+  cursor:pointer;padding:4px 0;transition:color .2s var(--ease);
+}
+.btn-acceso:hover{color:var(--texto-2);text-decoration:underline;}
+
+.aviso-config{
+  background:#FFF8E1;border:1px solid #F0D98C;border-radius:var(--r-md);
+  padding:14px 18px;font-size:0.87rem;color:#6B5518;margin:18px 0 0;
+}
+.aviso-config[hidden]{display:none;}
+
+@media (max-width:680px){
+  .fila-busqueda{flex-direction:column;}
+  .btn-primario{padding:14px;}
+  .top-inner{height:auto;padding:10px 0;flex-direction:column;align-items:flex-start;gap:10px;}
+  .nav-seg{width:100%;}
+  .nav-seg button{flex:1;padding:8px 6px;}
+  .item .l1{flex-direction:column;align-items:flex-start;gap:2px;}
+  .campo-det{flex-direction:column;gap:2px;}
+  .campo-det .v{text-align:left;}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important;}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-inner">
+    <div class="marca">Ítaca Librería-Bar <span>· Salón de Editoriales Independientes</span></div>
+    <nav class="nav-seg" id="nav">
+      <button data-sec="buscar" class="on">Buscar</button>
+      <button data-sec="explorar">Explorar</button>
+      <button data-sec="editoriales">Editoriales</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap"><div class="aviso-config" id="aviso-config" hidden></div></div>
+
+<main class="wrap">
+
+  <section class="seccion visible" id="sec-buscar">
+    <h1 class="titulo-seccion">Busca en el catálogo</h1>
+    <p class="sub-seccion" id="sub-buscar">Título, autor o editorial.</p>
+
+    <div class="fila-busqueda">
+      <div class="campo">
+        <input type="text" id="q" placeholder="Escribe un título, autor o editorial" autocomplete="off" aria-label="Buscar en el catálogo">
+        <div class="autocomplete" id="ac" hidden role="listbox"></div>
+      </div>
+      <button class="btn-primario" id="btn-buscar">Buscar</button>
+    </div>
+
+    <div class="criterios" id="criterios">
+      <button class="etiqueta-criterio on" data-crit="todo">Todo</button>
+      <button class="etiqueta-criterio" data-crit="titulo">Título</button>
+      <button class="etiqueta-criterio" data-crit="autor">Autor</button>
+      <button class="etiqueta-criterio" data-crit="editorial">Editorial</button>
+    </div>
+
+    <div class="barra-resultados" id="barra-buscar" hidden>
+      <span id="conteo-buscar"></span>
+      <label style="display:flex;align-items:center;gap:8px;">Ordenar
+        <select class="orden" id="orden-buscar">
+          <option value="relevancia">Relevancia</option>
+          <option value="disponibilidad">Disponibilidad</option>
+          <option value="titulo">Título (A–Z)</option>
+          <option value="precio-asc">Precio: menor a mayor</option>
+          <option value="precio-desc">Precio: mayor a menor</option>
+        </select>
+      </label>
+    </div>
+    <div class="lista" id="lista-buscar"></div>
+    <button class="btn-secundario" id="mas-buscar" hidden>Mostrar más</button>
+
+    <div class="bloque-top" id="bloque-top">
+      <h2>Los más consultados</h2>
+      <p class="nota" id="nota-top"></p>
+      <div class="lista" id="lista-top"></div>
+    </div>
+  </section>
+
+  <section class="seccion" id="sec-explorar">
+    <h1 class="titulo-seccion">Explorar el catálogo</h1>
+    <p class="sub-seccion">Filtra por precio, categoría, disponibilidad y origen, sin escribir nada.</p>
+
+    <div class="tarjeta-filtro">
+      <h2>Rango de precio</h2>
+      <p class="ayuda" id="ayuda-precio"></p>
+      <div class="limites-slider"><span id="lim-min"></span><span id="lim-max"></span></div>
+      <div class="slider" id="slider">
+        <div class="pista"></div>
+        <div class="pista-activa" id="pista-activa"></div>
+        <div class="thumb" id="thumb-min" role="slider" tabindex="0" aria-label="Precio mínimo"><span class="burbuja" id="bur-min"></span></div>
+        <div class="thumb" id="thumb-max" role="slider" tabindex="0" aria-label="Precio máximo"><span class="burbuja" id="bur-max"></span></div>
+      </div>
+    </div>
+
+    <div class="tarjeta-filtro">
+      <h2>Categoría temática</h2>
+      <p class="ayuda">Inferida del campo de materias del proveedor. Los títulos sin ese dato quedan como “Sin clasificar”.</p>
+      <div class="chips" id="chips-cat"></div>
+    </div>
+
+    <div class="tarjeta-filtro">
+      <h2>Disponibilidad</h2>
+      <p class="ayuda">Por defecto no se muestran los agotados.</p>
+      <div class="chips" id="chips-disp">
+        <button class="chip" data-d="Disponible">Disponible</button>
+        <button class="chip" data-d="Últimas unidades">Últimas unidades</button>
+        <button class="chip" data-d="Agotado">Incluir agotados</button>
+      </div>
+    </div>
+
+    <div class="tarjeta-filtro">
+      <h2>Origen literario</h2>
+      <p class="ayuda">Solo una parte del catálogo trae esta etiqueta, así que sirve para descubrir, no como listado completo.</p>
+      <div class="chips" id="chips-pais"></div>
+    </div>
+
+    <div class="barra-aplicar">
+      <button class="btn-primario" id="aplicar" style="padding:12px 28px;">Aplicar filtros</button>
+      <button class="link-plano" id="limpiar">Limpiar todo</button>
+      <span class="pendiente-aviso" id="pendiente-aviso"></span>
+    </div>
+
+    <div class="barra-resultados">
+      <span id="conteo-explorar"></span>
+      <label style="display:flex;align-items:center;gap:8px;">Ordenar
+        <select class="orden" id="orden-explorar">
+          <option value="disponibilidad">Disponibilidad</option>
+          <option value="titulo">Título (A–Z)</option>
+          <option value="precio-asc">Precio: menor a mayor</option>
+          <option value="precio-desc">Precio: mayor a menor</option>
+        </select>
+      </label>
+    </div>
+    <div class="lista" id="lista-explorar"></div>
+    <button class="btn-secundario" id="mas-explorar" hidden>Mostrar más</button>
+  </section>
+
+  <section class="seccion" id="sec-editoriales">
+    <div id="vista-lista-editoriales">
+      <h1 class="titulo-seccion">Editoriales</h1>
+      <p class="sub-seccion" id="sub-editoriales"></p>
+      <div class="fila-busqueda">
+        <div class="campo">
+          <input type="text" id="q-ed" placeholder="Nombre de la editorial" autocomplete="off" aria-label="Buscar editorial">
+        </div>
+        <button class="btn-primario" id="btn-buscar-ed">Buscar</button>
+      </div>
+      <div class="acciones-filtro">
+        <button class="link-plano" id="limpiar-ed">Limpiar búsqueda</button>
+      </div>
+      <div class="grid-editoriales" id="grid-editoriales" style="margin-top:14px;"></div>
+    </div>
+
+    <div id="vista-detalle-editorial" hidden>
+      <button class="volver" id="volver-editoriales">‹ Todas las editoriales</button>
+      <h1 class="titulo-seccion" id="nombre-editorial"></h1>
+      <p class="sub-seccion" id="sub-detalle-editorial"></p>
+      <div class="lista" id="lista-editorial"></div>
+    </div>
+  </section>
+
+  <section class="seccion" id="sec-admin">
+    <h1 class="titulo-seccion">Administración</h1>
+    <p class="sub-seccion" id="sub-admin"></p>
+
+    <div class="tarjeta-filtro">
+      <h2>Actualizar catálogo desde un CSV</h2>
+      <p class="ayuda">Los títulos nuevos se agregan, los que ya existen se actualizan con los datos nuevos, y los que no aparezcan en este archivo se conservan sin cambios.</p>
+      <div class="zona-drop"><input type="file" id="csv" accept=".csv"></div>
+      <div class="resumen" id="resumen-carga" hidden></div>
+      <div class="acciones-filtro" style="margin-top:16px;">
+        <button class="btn-primario" id="guardar-supabase" style="padding:11px 24px;" hidden>Guardar en Supabase</button>
+        <button class="link-plano" id="descargar-json">Descargar catalogo.json</button>
+      </div>
+    </div>
+
+    <div class="tarjeta-filtro">
+      <h2>Estado de los datos</h2>
+      <div id="estado-datos"></div>
+    </div>
+
+    <div class="acciones-filtro">
+      <button class="link-plano" id="cerrar-sesion">Cerrar sesión</button>
+    </div>
+  </section>
+
+</main>
+
+<footer class="pie">
+  <div class="wrap pie-inner">
+    <span>Catálogo de referencia del Salón de Editoriales Independientes.</span>
+    <button class="btn-acceso" id="btn-acceso">Acceso</button>
+  </div>
+</footer>
+
+<div class="fondo-modal" id="modal-libro" hidden><div class="modal" id="cont-libro" role="dialog" aria-modal="true"></div></div>
+
+<div class="fondo-modal" id="modal-login" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-admin">
+      <h2>Acceso de administración</h2>
+      <p class="ayuda">Solo para el equipo de Ítaca. Los visitantes no necesitan iniciar sesión.</p>
+      <input type="email" id="email" placeholder="Correo" autocomplete="username">
+      <input type="password" id="pass" placeholder="Contraseña" autocomplete="current-password">
+      <button class="btn-primario" id="btn-login">Entrar</button>
+      <p class="msg-error" id="msg-login" hidden></p>
+      <div style="text-align:center;margin-top:14px;">
+        <button class="link-plano" id="cancelar-login">Cancelar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   CONFIGURACIÓN DE SUPABASE
+   Completa estos dos valores con los de tu proyecto.
+   Si los dejas vacíos, la app funciona igual leyendo
+   catalogo.json, pero sin login ni conteo compartido.
+   ========================================================= */
+const SUPABASE_URL = 'https://dbqlbkrbbhkuhznzugiw.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_wIwEYrKj69kH-W8AZqwxzg_W1x0KOVV';
+
+const CAT_COLOR = {
+  'Narrativa / Ficción':'var(--cat-narrativa)','Poesía':'var(--cat-poesia)',
+  'Terror / Fantástico':'var(--cat-terror)','Ensayo / Crónica':'var(--cat-ensayo)',
+  'Infantil / Juvenil':'var(--cat-infantil)','Arte / Cultura visual':'var(--cat-arte)',
+  'Cómic / Novela gráfica':'var(--cat-comic)','Otras':'var(--cat-otras)','Sin clasificar':'var(--cat-sin)'
+};
+const ORDEN_CAT = ['Narrativa / Ficción','Poesía','Terror / Fantástico','Ensayo / Crónica',
+  'Infantil / Juvenil','Arte / Cultura visual','Cómic / Novela gráfica','Otras','Sin clasificar'];
+const ORDEN_DISP = {'Disponible':0,'Últimas unidades':1,'Agotado':2};
+const PAGINA = 24;
+
+let CATALOGO = [];
+let sb = null;
+let usuario = null;
+let consultas = {};
+let ultimaCarga = null;
+
+const S = {
+  criterio:'todo', orden:'relevancia', mostrados:PAGINA, resultados:[],
+  pMin:0, pMax:0, cats:new Set(), disp:new Set(), paises:new Set(),
+  ordenExp:'disponibilidad', mostradosExp:PAGINA, resultadosExp:[], qEd:''
+};
+let LIM_MIN = 0, LIM_MAX = 100000;
+
+const sinTildes = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const norm = s => sinTildes(s).toLowerCase().trim();
+const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pesos = n => '$' + Math.round(n).toLocaleString('es-CO');
+const fmtPVP = (p,v) => v ? pesos(p) : 'Precio por confirmar';
+
+/* ---------- limpieza de CSV ---------- */
+const TERROR_THEMA = new Set(['Fantasía','Ciencia ficción','Crímenes y misterio','Thriller/suspense','Mitos y cuentos de hadas']);
+const PAISES = {ESTADOUNIDENSE:'Literatura estadounidense',FRANCESA:'Literatura francesa',INGLESA:'Literatura inglesa',
+  IRLANDESA:'Literatura irlandesa',ARGENTINA:'Literatura argentina',ITALIANA:'Literatura italiana',SUECA:'Literatura sueca',
+  ALEMANA:'Literatura alemana',CHECA:'Literatura checa',NORTEAMERICANA:'Literatura norteamericana',
+  BRITANICA:'Literatura británica',ESPANOLA:'Literatura española',LATINOAMERICANA:'Literatura latinoamericana',
+  RUSA:'Literatura rusa',CANADIENSE:'Literatura canadiense',ISRAELI:'Literatura israelí'};
+
+function catThema(p){
+  const a=p[1]||'', b=p[2]||'';
+  if(a==='Ficción y temas afines') return TERROR_THEMA.has(b)?'Terror / Fantástico':'Narrativa / Ficción';
+  if(a==='Biografías, literatura y estudios literarios'){
+    if(b==='Poesía') return 'Poesía';
+    if(b==='Biografías y prosa de no ficción'||b==='Literatura: historia y crítica') return 'Ensayo / Crónica';
+    return 'Otras';
+  }
+  if(a==='Sociedad y ciencias sociales'||a==='Filosofía y religión'||a==='Historia y arqueología') return 'Ensayo / Crónica';
+  if(a==='Infantiles, juveniles y didácticos') return 'Infantil / Juvenil';
+  if(a==='Artes') return 'Arte / Cultura visual';
+  if(a==='Novela gráfica, libros de cómics, dibujos animados') return 'Cómic / Novela gráfica';
+  return 'Otras';
+}
+function catLibre(m){
+  if(m.includes('POES')) return 'Poesía';
+  if(['COMIC','CÓMIC','NOVELA GRAFICA','NOVELA GRÁFICA'].some(w=>m.includes(w))) return 'Cómic / Novela gráfica';
+  if(['TERROR','FANTASM','VAMPIR','GOTIC','GÓTIC','FANTASTIC','FANTÁSTIC'].some(w=>m.includes(w))) return 'Terror / Fantástico';
+  if(['AUTOBIOGRAFIA','AUTOBIOGRAFÍA','CRITICA LITERARIA','CRÍTICA LITERARIA','ENSAYO'].some(w=>m.includes(w))) return 'Ensayo / Crónica';
+  if(m.includes('INFANTIL')||m.includes('JUVENIL')) return 'Infantil / Juvenil';
+  if(['CUENTO','RELATO','NARRATIVA','NOVELA'].some(w=>m.includes(w))) return 'Narrativa / Ficción';
+  return 'Sin clasificar';
+}
+function limpiarFila(r){
+  const titulo=(r['Título']||'').trim(), autor=(r['Autor']||'').trim(), editorial=(r['Editorial']||'').trim();
+  const pvpRaw=(r['PVP']||'').trim();
+  if(!titulo||!editorial||!pvpRaw) return null;
+  const isbn=(r['ISBN']||'').trim(), materias=(r['Materias']||'').trim(), M=materias.toUpperCase();
+  const coleccion=(r['Colección']||'').trim();
+  const pvp=parseFloat(String(pvpRaw).replace('$','').replace(/,/g,'').trim())||0;
+  const stock=parseInt(r['Stock Total']||'0')||0;
+  let categoria = materias.startsWith('THEMA') ? catThema(materias.split('->').map(x=>x.trim()))
+                : materias ? catLibre(M) : 'Sin clasificar';
+  const pais=[]; const sa=sinTildes(M);
+  for(const k in PAISES) if(sa.includes('LITERATURA '+k)) pais.push(PAISES[k]);
+  const mm = M.match(/SIGLO (XIX|XXI|XX|XVIII|XVII)/);
+  return {
+    id: isbn || ('__'+norm(titulo)+'|'+norm(autor)),
+    isbn: isbn||null, titulo, autor: autor||'Autor no especificado', editorial,
+    coleccion: coleccion||null, pvp, pvp_valido: pvp>0, stock_total: stock,
+    disponibilidad: stock<=0?'Agotado':stock<=2?'Últimas unidades':'Disponible',
+    categoria, pais_idioma: pais, epoca: mm?('Siglo '+mm[1]):null,
+    ilustrado: M.includes('ILUSTRADO'), materias_original: materias||null
+  };
+}
+
+/* ---------- arranque ---------- */
+async function iniciar(){
+  if(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase){
+    try{
+      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      const {data:{session}} = await sb.auth.getSession();
+      usuario = session?.user || null;
+    }catch(e){ console.warn('Supabase no disponible:', e); sb=null; }
+  }
+  await cargarCatalogo();
+  indexar();
+  const precios = CATALOGO.filter(x=>x.pvp_valido).map(x=>x.pvp);
+  LIM_MIN = precios.length ? Math.max(0, Math.min(...precios)-10000) : 0;
+  LIM_MAX = precios.length ? Math.max(...precios)+10000 : 100000;
+  S.pMin=LIM_MIN; S.pMax=LIM_MAX;
+
+  await cargarConsultas();
+  construirSlider();
+  construirChipsCat();
+  construirChipsPais();
+  pintarEditoriales();
+  buscar();
+  filtrar();
+  pintarTop();
+  actualizarAcceso();
+  avisoConfig();
+}
+async function cargarCatalogo(){
+  if(sb){
+    try{
+      let todos=[], desde=0;
+      while(true){
+        const {data,error}=await sb.from('catalogo_libros').select('*').range(desde,desde+999);
+        if(error) throw error;
+        todos=todos.concat(data);
+        if(data.length<1000) break;
+        desde+=1000;
+      }
+      if(todos.length){ CATALOGO=todos; return; }
+    }catch(e){ console.warn('Leo catalogo.json:', e.message); }
+  }
+  const res = await fetch('./catalogo.json');
+  CATALOGO = await res.json();
+}
+function indexar(){ CATALOGO.forEach(i=>{ i._t=norm(i.titulo); i._a=norm(i.autor); i._e=norm(i.editorial); }); }
+
+async function cargarConsultas(){
+  if(!sb) return;
+  try{
+    const {data,error}=await sb.from('consultas_libros').select('libro_id,conteo').order('conteo',{ascending:false}).limit(200);
+    if(error) throw error;
+    consultas={}; data.forEach(r=>consultas[r.libro_id]=r.conteo);
+  }catch(e){ console.warn('Sin conteo de consultas:', e.message); }
+}
+async function registrarConsulta(item){
+  consultas[item.id]=(consultas[item.id]||0)+1;
+  pintarTop();
+  if(!sb) return;
+  try{
+    await sb.rpc('incrementar_consulta',{p_libro_id:item.id,p_titulo:item.titulo,p_autor:item.autor,p_editorial:item.editorial});
+  }catch(e){ console.warn('No se registró la consulta:', e.message); }
+}
+function avisoConfig(){
+  if(sb) return;
+  const el=document.getElementById('aviso-config');
+  el.hidden=false;
+  el.textContent='Supabase todavía no está configurado en index.html. La app funciona con catalogo.json y el conteo de consultas es solo de esta sesión. Completa SUPABASE_URL y SUPABASE_ANON_KEY para activar el acceso de administración.';
+}
+
+/* ---------- navegación ---------- */
+document.getElementById('nav').addEventListener('click', e=>{
+  const b=e.target.closest('button'); if(b) irA(b.dataset.sec);
+});
+function irA(sec){
+  document.querySelectorAll('.seccion').forEach(s=>s.classList.remove('visible'));
+  document.getElementById('sec-'+sec).classList.add('visible');
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.sec===sec));
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+/* ---------- buscar ---------- */
+const inputQ=document.getElementById('q'), cajaAC=document.getElementById('ac');
+let acActiva=-1, tDeb=null;
+inputQ.addEventListener('input',()=>{clearTimeout(tDeb);tDeb=setTimeout(sugerir,150);});
+inputQ.addEventListener('keydown',e=>{
+  const items=cajaAC.querySelectorAll('button');
+  if(e.key==='ArrowDown'){e.preventDefault();acActiva=Math.min(acActiva+1,items.length-1);marcarAC(items);}
+  else if(e.key==='ArrowUp'){e.preventDefault();acActiva=Math.max(acActiva-1,0);marcarAC(items);}
+  else if(e.key==='Enter'){e.preventDefault(); if(acActiva>=0&&items[acActiva]) items[acActiva].click(); else {cerrarAC();buscar();}}
+  else if(e.key==='Escape') cerrarAC();
+});
+function marcarAC(items){items.forEach((x,i)=>x.classList.toggle('activa',i===acActiva));if(items[acActiva])items[acActiva].scrollIntoView({block:'nearest'});}
+function cerrarAC(){cajaAC.hidden=true;acActiva=-1;}
+document.addEventListener('click',e=>{if(!e.target.closest('.campo'))cerrarAC();});
+
+function sugerir(){
+  const q=norm(inputQ.value); acActiva=-1;
+  if(q.length<2){cerrarAC();return;}
+  const vistos=new Set(), sug=[];
+  for(const i of CATALOGO){ if(sug.length>=6)break;
+    if(i._t.includes(q)&&!vistos.has('t'+i.titulo)){vistos.add('t'+i.titulo);sug.push({v:i.titulo,tipo:'título'});}}
+  for(const i of CATALOGO){ if(sug.length>=9)break;
+    if(i._a.includes(q)&&!vistos.has('a'+i.autor)){vistos.add('a'+i.autor);sug.push({v:i.autor,tipo:'autor'});}}
+  for(const i of CATALOGO){ if(sug.length>=11)break;
+    if(i._e.includes(q)&&!vistos.has('e'+i.editorial)){vistos.add('e'+i.editorial);sug.push({v:i.editorial,tipo:'editorial'});}}
+  if(!sug.length){cerrarAC();return;}
+  cajaAC.innerHTML=sug.map(s=>`<button role="option" data-v="${esc(s.v)}"><span>${esc(s.v)}</span><span class="tipo">${s.tipo}</span></button>`).join('');
+  cajaAC.hidden=false;
+  cajaAC.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{inputQ.value=b.dataset.v;cerrarAC();buscar();}));
+}
+document.getElementById('btn-buscar').addEventListener('click',()=>{cerrarAC();buscar();});
+document.getElementById('criterios').addEventListener('click',e=>{
+  const b=e.target.closest('.etiqueta-criterio'); if(!b)return;
+  S.criterio=b.dataset.crit;
+  document.querySelectorAll('.etiqueta-criterio').forEach(x=>x.classList.toggle('on',x===b));
+  buscar();
+});
+document.getElementById('orden-buscar').addEventListener('change',e=>{S.orden=e.target.value;buscar();});
+document.getElementById('mas-buscar').addEventListener('click',()=>{S.mostrados+=PAGINA;pintarBuscar();});
+
+function coincide(i,q){
+  if(!q) return true;
+  if(S.criterio==='titulo') return i._t.includes(q);
+  if(S.criterio==='autor') return i._a.includes(q);
+  if(S.criterio==='editorial') return i._e.includes(q);
+  return i._t.includes(q)||i._a.includes(q)||i._e.includes(q);
+}
+function puntaje(i,q){
+  let s=0;
+  if(i._t.startsWith(q))s+=100; else if(i._t.includes(q))s+=60;
+  if(i._a.startsWith(q))s+=50; else if(i._a.includes(q))s+=30;
+  if(i._e.startsWith(q))s+=20; else if(i._e.includes(q))s+=10;
+  return s;
+}
+function ordenar(arr,modo,q){
+  if(modo==='relevancia'&&q) arr.sort((a,b)=>puntaje(b,q)-puntaje(a,q)||a.titulo.localeCompare(b.titulo,'es'));
+  else if(modo==='titulo') arr.sort((a,b)=>a.titulo.localeCompare(b.titulo,'es'));
+  else if(modo==='precio-asc') arr.sort((a,b)=>(a.pvp||0)-(b.pvp||0));
+  else if(modo==='precio-desc') arr.sort((a,b)=>(b.pvp||0)-(a.pvp||0));
+  else arr.sort((a,b)=>ORDEN_DISP[a.disponibilidad]-ORDEN_DISP[b.disponibilidad]||a.titulo.localeCompare(b.titulo,'es'));
+  return arr;
+}
+function buscar(){
+  const q=norm(inputQ.value);
+  const hayQ=q.length>0;
+  document.getElementById('bloque-top').style.display = hayQ?'none':'block';
+  document.getElementById('barra-buscar').hidden = !hayQ;
+  if(!hayQ){
+    document.getElementById('lista-buscar').innerHTML='';
+    document.getElementById('mas-buscar').hidden=true;
+    document.getElementById('sub-buscar').textContent=`${CATALOGO.length} títulos en el catálogo. Busca por título, autor o editorial.`;
+    return;
+  }
+  const out=CATALOGO.filter(i=>coincide(i,q)&&i.disponibilidad!=='Agotado');
+  ordenar(out,S.orden,q);
+  S.resultados=out; S.mostrados=PAGINA;
+  pintarBuscar();
+}
+function pintarBuscar(){
+  const cont=document.getElementById('lista-buscar'), t=S.resultados.length;
+  document.getElementById('conteo-buscar').textContent = t===0?'Sin resultados':`${t} título${t===1?'':'s'}`;
+  if(t===0){
+    cont.innerHTML=`<div class="vacio"><strong>No encontramos coincidencias</strong><span>Prueba con la etiqueta “Todo” en vez de un criterio específico, o revisa la escritura.</span></div>`;
+    document.getElementById('mas-buscar').hidden=true; return;
+  }
+  cont.innerHTML=S.resultados.slice(0,S.mostrados).map(itemHTML).join('');
+  enlazarItems(cont);
+  document.getElementById('mas-buscar').hidden = S.mostrados>=t;
+}
+
+function itemHTML(i){
+  return `<div class="item" data-id="${esc(i.id)}" tabindex="0" role="button" aria-label="Ver ${esc(i.titulo)}">
+    <div class="franja" style="background:${CAT_COLOR[i.categoria]||'var(--cat-sin)'};"></div>
+    <div class="cuerpo">
+      <div class="l1"><h3>${esc(i.titulo)}</h3><span class="precio ${i.pvp_valido?'':'pend'}">${fmtPVP(i.pvp,i.pvp_valido)}</span></div>
+      <div class="l2"><span>${esc(i.autor)}</span><span class="sep-punto">·</span><span>${esc(i.editorial)}</span>
+        <span class="punto" data-e="${i.disponibilidad}">${i.disponibilidad}</span></div>
+    </div></div>`;
+}
+function enlazarItems(cont){
+  cont.querySelectorAll('.item').forEach(el=>{
+    el.addEventListener('click',()=>abrirLibro(el.dataset.id));
+    el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();abrirLibro(el.dataset.id);}});
+  });
+}
+
+/* ---------- top consultados ---------- */
+function pintarTop(){
+  const cont=document.getElementById('lista-top');
+  const ids=Object.keys(consultas).sort((a,b)=>consultas[b]-consultas[a]).slice(0,10);
+  const libros=ids.map(id=>CATALOGO.find(x=>x.id===id)).filter(Boolean);
+  document.getElementById('nota-top').textContent = sb
+    ? 'Los títulos que más ha abierto la gente en el salón.'
+    : 'Se cuenta lo que se abre en esta sesión. Al conectar Supabase el conteo pasa a ser de todos los visitantes.';
+  if(!libros.length){
+    cont.innerHTML=`<div class="vacio"><strong>Todavía no hay consultas</strong><span>Cuando la gente empiece a abrir fichas de libros, aquí aparecerán los diez más vistos.</span></div>`;
+    return;
+  }
+  cont.innerHTML=libros.map((i,n)=>`<button class="rank" data-id="${esc(i.id)}">
+    <span class="n">${n+1}</span>
+    <span class="txt"><strong>${esc(i.titulo)}</strong><span>${esc(i.autor)} · ${esc(i.editorial)}</span></span>
+    <span class="veces">${consultas[i.id]} consulta${consultas[i.id]===1?'':'s'}</span></button>`).join('');
+  cont.querySelectorAll('.rank').forEach(b=>b.addEventListener('click',()=>abrirLibro(b.dataset.id)));
+}
+
+/* ---------- explorar ---------- */
+/* B = selección en pantalla (borrador). S = lo que ya está aplicado.
+   Los resultados solo cambian al presionar "Aplicar filtros". */
+const B = { pMin:0, pMax:0, cats:new Set(), disp:new Set(), paises:new Set() };
+const PASO = 1000;
+let pintarSlider = ()=>{};
+
+function construirSlider(){
+  const slider=document.getElementById('slider');
+  const tMin=document.getElementById('thumb-min'), tMax=document.getElementById('thumb-max');
+  const pista=document.getElementById('pista-activa');
+  const span=(LIM_MAX-LIM_MIN)||1;
+
+  B.pMin=LIM_MIN; B.pMax=LIM_MAX;
+  document.getElementById('lim-min').textContent=pesos(LIM_MIN);
+  document.getElementById('lim-max').textContent=pesos(LIM_MAX);
+  document.getElementById('ayuda-precio').textContent =
+    `De ${pesos(LIM_MIN)} a ${pesos(LIM_MAX)}: diez mil pesos por debajo del libro más barato del catálogo y diez mil por encima del más caro.`;
+
+  function pintar(){
+    const a=((B.pMin-LIM_MIN)/span)*100, b=((B.pMax-LIM_MIN)/span)*100;
+    tMin.style.left=a+'%'; tMax.style.left=b+'%';
+    pista.style.left=a+'%'; pista.style.width=(b-a)+'%';
+    document.getElementById('bur-min').textContent=pesos(B.pMin);
+    document.getElementById('bur-max').textContent=pesos(B.pMax);
+    tMin.setAttribute('aria-valuenow',B.pMin);
+    tMax.setAttribute('aria-valuenow',B.pMax);
+    marcarPendiente();
+  }
+  function valorDesdeX(clientX){
+    const r=slider.getBoundingClientRect();
+    let pct=(clientX-r.left)/(r.width||1);
+    pct=Math.min(1,Math.max(0,pct));
+    return Math.round((LIM_MIN+pct*span)/PASO)*PASO;
+  }
+  function fijar(cual,valor){
+    valor=Math.min(LIM_MAX,Math.max(LIM_MIN,valor));
+    if(cual==='min') B.pMin=Math.min(valor,B.pMax);
+    else B.pMax=Math.max(valor,B.pMin);
+    pintar();
+  }
+  function arrastrar(cual,thumb,ev){
+    ev.preventDefault();
+    thumb.classList.add('arrastrando');
+    thumb.focus({preventScroll:true});
+    const mover=e=>{
+      const x=(e.touches&&e.touches[0])?e.touches[0].clientX:e.clientX;
+      fijar(cual,valorDesdeX(x));
+    };
+    const soltar=()=>{
+      thumb.classList.remove('arrastrando');
+      document.removeEventListener('mousemove',mover);
+      document.removeEventListener('mouseup',soltar);
+      document.removeEventListener('touchmove',mover);
+      document.removeEventListener('touchend',soltar);
+    };
+    document.addEventListener('mousemove',mover);
+    document.addEventListener('mouseup',soltar);
+    document.addEventListener('touchmove',mover,{passive:false});
+    document.addEventListener('touchend',soltar);
+    mover(ev);
+  }
+  [['min',tMin],['max',tMax]].forEach(([cual,thumb])=>{
+    thumb.addEventListener('mousedown',e=>arrastrar(cual,thumb,e));
+    thumb.addEventListener('touchstart',e=>arrastrar(cual,thumb,e),{passive:false});
+    thumb.addEventListener('keydown',e=>{
+      const grande=e.key==='PageUp'||e.key==='PageDown';
+      const paso=grande?PASO*10:PASO;
+      if(e.key==='ArrowRight'||e.key==='ArrowUp'||e.key==='PageUp'){
+        e.preventDefault(); fijar(cual,(cual==='min'?B.pMin:B.pMax)+paso);
+      }else if(e.key==='ArrowLeft'||e.key==='ArrowDown'||e.key==='PageDown'){
+        e.preventDefault(); fijar(cual,(cual==='min'?B.pMin:B.pMax)-paso);
+      }else if(e.key==='Home'){ e.preventDefault(); fijar(cual,LIM_MIN); }
+      else if(e.key==='End'){ e.preventDefault(); fijar(cual,LIM_MAX); }
+    });
+    thumb.setAttribute('aria-valuemin',LIM_MIN);
+    thumb.setAttribute('aria-valuemax',LIM_MAX);
+  });
+  pintarSlider = pintar;
+  // clic en la barra: mueve el círculo más cercano
+  slider.addEventListener('mousedown',e=>{
+    if(e.target.closest('.thumb')) return;
+    const v=valorDesdeX(e.clientX);
+    fijar(Math.abs(v-B.pMin)<=Math.abs(v-B.pMax)?'min':'max', v);
+  });
+
+  pintar();
+}
+
+function construirChipsCat(){
+  const cont=document.getElementById('chips-cat');
+  const pres=ORDEN_CAT.filter(c=>CATALOGO.some(x=>x.categoria===c));
+  cont.innerHTML=pres.map(c=>`<button class="chip${B.cats.has(c)?' on':''}" data-c="${esc(c)}">${esc(c)} · ${CATALOGO.filter(x=>x.categoria===c).length}</button>`).join('');
+  cont.querySelectorAll('.chip').forEach(b=>b.addEventListener('click',()=>{
+    const c=b.dataset.c;
+    if(B.cats.has(c)) B.cats.delete(c); else B.cats.add(c);
+    b.classList.toggle('on'); marcarPendiente();
+  }));
+}
+function construirChipsPais(){
+  const cont=document.getElementById('chips-pais'), set=new Set();
+  CATALOGO.forEach(x=>(x.pais_idioma||[]).forEach(p=>set.add(p)));
+  const lista=[...set].sort();
+  if(!lista.length){cont.innerHTML='<span style="font-size:0.86rem;color:var(--texto-3);">Sin datos de origen en este catálogo.</span>';return;}
+  cont.innerHTML=lista.map(p=>`<button class="chip${B.paises.has(p)?' on':''}" data-p="${esc(p)}">${esc(p)}</button>`).join('');
+  cont.querySelectorAll('.chip').forEach(b=>b.addEventListener('click',()=>{
+    const p=b.dataset.p;
+    if(B.paises.has(p)) B.paises.delete(p); else B.paises.add(p);
+    b.classList.toggle('on'); marcarPendiente();
+  }));
+}
+document.getElementById('chips-disp').addEventListener('click',e=>{
+  const b=e.target.closest('.chip'); if(!b)return;
+  const d=b.dataset.d;
+  if(B.disp.has(d)) B.disp.delete(d); else B.disp.add(d);
+  b.classList.toggle('on'); marcarPendiente();
+});
+
+const mismoSet=(x,y)=>x.size===y.size&&[...x].every(v=>y.has(v));
+function hayCambios(){
+  return B.pMin!==S.pMin||B.pMax!==S.pMax||
+    !mismoSet(B.cats,S.cats)||!mismoSet(B.disp,S.disp)||!mismoSet(B.paises,S.paises);
+}
+function marcarPendiente(){
+  const el=document.getElementById('pendiente-aviso');
+  if(!el) return;
+  const cambios=hayCambios();
+  el.classList.toggle('cambios',cambios);
+  el.textContent = cambios ? 'Tienes cambios sin aplicar' : '';
+}
+
+document.getElementById('aplicar').addEventListener('click',()=>{
+  S.pMin=B.pMin; S.pMax=B.pMax;
+  S.cats=new Set(B.cats); S.disp=new Set(B.disp); S.paises=new Set(B.paises);
+  marcarPendiente();
+  filtrar();
+  document.getElementById('conteo-explorar').scrollIntoView({behavior:'smooth',block:'start'});
+});
+document.getElementById('limpiar').addEventListener('click',()=>{
+  B.cats.clear(); B.disp.clear(); B.paises.clear();
+  B.pMin=LIM_MIN; B.pMax=LIM_MAX;
+  document.querySelectorAll('#sec-explorar .chip.on').forEach(c=>c.classList.remove('on'));
+  S.pMin=LIM_MIN; S.pMax=LIM_MAX;
+  pintarSlider();
+  S.cats.clear(); S.disp.clear(); S.paises.clear();
+  marcarPendiente();
+  filtrar();
+});
+document.getElementById('orden-explorar').addEventListener('change',e=>{S.ordenExp=e.target.value;filtrar();});
+document.getElementById('mas-explorar').addEventListener('click',()=>{S.mostradosExp+=PAGINA;pintarExplorar();});
+
+function filtrar(){
+  const rangoValido=Number.isFinite(S.pMin)&&Number.isFinite(S.pMax)&&S.pMax>=S.pMin;
+  const positivas=['Disponible','Últimas unidades'].filter(d=>S.disp.has(d));
+  const visibles=positivas.length?positivas:['Disponible','Últimas unidades'];
+  const conAgotados=S.disp.has('Agotado');
+  const out=CATALOGO.filter(i=>{
+    if(rangoValido&&i.pvp_valido&&(i.pvp<S.pMin||i.pvp>S.pMax)) return false;
+    if(S.cats.size&&!S.cats.has(i.categoria)) return false;
+    if(S.paises.size&&!(i.pais_idioma||[]).some(p=>S.paises.has(p))) return false;
+    if(i.disponibilidad==='Agotado') return conAgotados;
+    return visibles.includes(i.disponibilidad);
+  });
+  ordenar(out,S.ordenExp,'');
+  S.resultadosExp=out; S.mostradosExp=PAGINA;
+  pintarExplorar();
+}
+function pintarExplorar(){
+  const cont=document.getElementById('lista-explorar'), t=S.resultadosExp.length;
+  document.getElementById('conteo-explorar').textContent = t===0?'Sin resultados':`${t} título${t===1?'':'s'}`;
+  if(t===0){
+    cont.innerHTML=`<div class="vacio"><strong>Ningún título con estos filtros</strong><span>Prueba ampliando el rango de precio o quitando alguna categoría.</span></div>`;
+    document.getElementById('mas-explorar').hidden=true; return;
+  }
+  cont.innerHTML=S.resultadosExp.slice(0,S.mostradosExp).map(itemHTML).join('');
+  enlazarItems(cont);
+  document.getElementById('mas-explorar').hidden = S.mostradosExp>=t;
+}
+
+/* ---------- editoriales ---------- */
+function datosEditoriales(){
+  const m=new Map();
+  CATALOGO.forEach(i=>{
+    if(!m.has(i.editorial)) m.set(i.editorial,{nombre:i.editorial,total:0,disp:0,precios:[]});
+    const e=m.get(i.editorial); e.total++;
+    if(i.disponibilidad!=='Agotado') e.disp++;
+    if(i.pvp_valido) e.precios.push(i.pvp);
+  });
+  return [...m.values()].sort((a,b)=>b.total-a.total);
+}
+function pintarEditoriales(){
+  const todas=datosEditoriales();
+  document.getElementById('sub-editoriales').textContent=`${todas.length} editoriales representadas en el salón.`;
+  const q=norm(S.qEd);
+  const lista=q?todas.filter(e=>norm(e.nombre).includes(q)):todas;
+  const cont=document.getElementById('grid-editoriales');
+  if(!lista.length){
+    cont.innerHTML=`<div class="vacio"><strong>Ninguna editorial con ese nombre</strong><span>Revisa la escritura o limpia la búsqueda para ver el listado completo.</span></div>`;
+    return;
+  }
+  cont.innerHTML=lista.map(e=>{
+    const rango=e.precios.length?`${pesos(Math.min(...e.precios))} – ${pesos(Math.max(...e.precios))}`:'sin precios registrados';
+    return `<button class="card-editorial" data-ed="${esc(e.nombre)}">
+      <span><span class="nom">${esc(e.nombre)}</span><span class="detalle">${e.total} título${e.total===1?'':'s'} · ${e.disp} en existencia · ${rango}</span></span>
+      <span class="flecha">›</span></button>`;
+  }).join('');
+  cont.querySelectorAll('.card-editorial').forEach(b=>b.addEventListener('click',()=>abrirEditorial(b.dataset.ed)));
+}
+document.getElementById('btn-buscar-ed').addEventListener('click',()=>{S.qEd=document.getElementById('q-ed').value;pintarEditoriales();});
+document.getElementById('q-ed').addEventListener('keydown',e=>{if(e.key==='Enter'){S.qEd=e.target.value;pintarEditoriales();}});
+document.getElementById('limpiar-ed').addEventListener('click',()=>{document.getElementById('q-ed').value='';S.qEd='';pintarEditoriales();});
+function abrirEditorial(nombre){
+  const libros=CATALOGO.filter(i=>i.editorial===nombre);
+  ordenar(libros,'disponibilidad','');
+  document.getElementById('vista-lista-editoriales').hidden=true;
+  document.getElementById('vista-detalle-editorial').hidden=false;
+  document.getElementById('nombre-editorial').textContent=nombre;
+  const disp=libros.filter(i=>i.disponibilidad!=='Agotado').length;
+  document.getElementById('sub-detalle-editorial').textContent=`${libros.length} título${libros.length===1?'':'s'} en el catálogo · ${disp} en existencia.`;
+  const cont=document.getElementById('lista-editorial');
+  cont.innerHTML=libros.map(itemHTML).join('');
+  enlazarItems(cont);
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+document.getElementById('volver-editoriales').addEventListener('click',()=>{
+  document.getElementById('vista-detalle-editorial').hidden=true;
+  document.getElementById('vista-lista-editoriales').hidden=false;
+  window.scrollTo({top:0,behavior:'smooth'});
+});
+
+/* ---------- modal libro ---------- */
+const modalLibro=document.getElementById('modal-libro'), contLibro=document.getElementById('cont-libro');
+let focoPrevio=null;
+function abrirLibro(id){
+  const i=CATALOGO.find(x=>x.id===id); if(!i)return;
+  focoPrevio=document.activeElement;
+  const color=CAT_COLOR[i.categoria]||'var(--cat-sin)';
+  contLibro.innerHTML=`
+    <div class="portada" style="background:${color};">
+      <button class="cerrar" id="cerrar-libro" aria-label="Cerrar">✕</button>
+      <div class="cat">${esc(i.categoria)}</div>
+      <h2>${esc(i.titulo)}</h2>
+      <div class="aut">${esc(i.autor)}</div>
+    </div>
+    <div class="modal-cuerpo">
+      <div class="campo-det"><span class="k">Editorial</span><span class="v">${esc(i.editorial)}</span></div>
+      ${i.coleccion?`<div class="campo-det"><span class="k">Colección</span><span class="v">${esc(i.coleccion)}</span></div>`:''}
+      <div class="campo-det"><span class="k">Precio</span><span class="v">${fmtPVP(i.pvp,i.pvp_valido)}</span></div>
+      <div class="campo-det"><span class="k">Disponibilidad</span><span class="v punto" data-e="${i.disponibilidad}">${i.disponibilidad}</span></div>
+      ${i.isbn?`<div class="campo-det"><span class="k">ISBN</span><span class="v">${esc(i.isbn)}</span></div>`:''}
+      ${i.pais_idioma&&i.pais_idioma.length?`<div class="campo-det"><span class="k">Origen</span><span class="v">${esc(i.pais_idioma.join(', '))}</span></div>`:''}
+      ${i.epoca?`<div class="campo-det"><span class="k">Época</span><span class="v">${esc(i.epoca)}</span></div>`:''}
+      ${i.ilustrado?`<div class="campo-det"><span class="k">Formato</span><span class="v">Libro ilustrado</span></div>`:''}
+      ${i.materias_original?`<p class="nota-mat">Materia registrada por el proveedor: ${esc(i.materias_original)}</p>`:''}
+    </div>`;
+  modalLibro.hidden=false;
+  document.getElementById('cerrar-libro').addEventListener('click',cerrarLibro);
+  document.getElementById('cerrar-libro').focus();
+  registrarConsulta(i);
+}
+function cerrarLibro(){modalLibro.hidden=true;if(focoPrevio)focoPrevio.focus();}
+modalLibro.addEventListener('click',e=>{if(e.target===modalLibro)cerrarLibro();});
+
+/* ---------- acceso admin ---------- */
+const modalLogin=document.getElementById('modal-login');
+document.getElementById('btn-acceso').addEventListener('click',()=>{
+  if(usuario){irA('admin');return;}
+  if(!sb){alert('Para activar el acceso de administración hay que configurar Supabase en index.html (ver INSTRUCCIONES.md).');return;}
+  modalLogin.hidden=false;
+  document.getElementById('email').focus();
+});
+document.getElementById('cancelar-login').addEventListener('click',()=>{modalLogin.hidden=true;});
+modalLogin.addEventListener('click',e=>{if(e.target===modalLogin)modalLogin.hidden=true;});
+document.getElementById('btn-login').addEventListener('click',async()=>{
+  const msg=document.getElementById('msg-login'); msg.hidden=true;
+  const email=document.getElementById('email').value.trim();
+  const password=document.getElementById('pass').value;
+  if(!email||!password){msg.textContent='Escribe el correo y la contraseña.';msg.hidden=false;return;}
+  const {data,error}=await sb.auth.signInWithPassword({email,password});
+  if(error){msg.textContent='No pudimos entrar: '+error.message;msg.hidden=false;return;}
+  usuario=data.user; modalLogin.hidden=true; actualizarAcceso(); irA('admin');
+});
+document.getElementById('pass').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('btn-login').click();});
+document.getElementById('cerrar-sesion').addEventListener('click',async()=>{
+  if(sb) await sb.auth.signOut();
+  usuario=null; actualizarAcceso(); irA('buscar');
+});
+function actualizarAcceso(){
+  const nav=document.getElementById('nav');
+  let btn=nav.querySelector('[data-sec=admin]');
+  if(usuario&&!btn){
+    btn=document.createElement('button'); btn.dataset.sec='admin'; btn.textContent='Admin'; nav.appendChild(btn);
+  }else if(!usuario&&btn){ btn.remove(); }
+  document.getElementById('btn-acceso').textContent = usuario?'Administración':'Acceso';
+  if(usuario){
+    document.getElementById('sub-admin').textContent=`Sesión iniciada como ${usuario.email}.`;
+    pintarEstadoDatos();
+    document.getElementById('guardar-supabase').hidden = !sb;
+  }
+}
+function pintarEstadoDatos(){
+  const total=CATALOGO.length;
+  const sinCat=CATALOGO.filter(x=>x.categoria==='Sin clasificar').length;
+  const sinPrecio=CATALOGO.filter(x=>!x.pvp_valido).length;
+  const conISBN=CATALOGO.filter(x=>x.isbn).length;
+  const eds=new Set(CATALOGO.map(x=>x.editorial)).size;
+  document.getElementById('estado-datos').innerHTML=`
+    <div class="campo-det"><span class="k">Títulos en el catálogo</span><span class="v">${total}</span></div>
+    <div class="campo-det"><span class="k">Editoriales</span><span class="v">${eds}</span></div>
+    <div class="campo-det"><span class="k">Sin categoría temática</span><span class="v">${sinCat}</span></div>
+    <div class="campo-det"><span class="k">Sin precio registrado</span><span class="v">${sinPrecio}</span></div>
+    <div class="campo-det"><span class="k">Con ISBN</span><span class="v">${conISBN}</span></div>
+    <div class="campo-det"><span class="k">Origen de los datos</span><span class="v">${sb?'Supabase':'catalogo.json'}</span></div>`;
+}
+
+/* ---------- carga de CSV ---------- */
+document.getElementById('csv').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f)return;
+  Papa.parse(f,{header:true,skipEmptyLines:true,encoding:'UTF-8',
+    complete:r=>procesarCSV(r.data),
+    error:err=>alert('No se pudo leer el archivo: '+err.message)});
+});
+function procesarCSV(filas){
+  const mapa=new Map(CATALOGO.map(i=>[i.id,i]));
+  const enCSV=new Set();
+  let nuevos=0,actualizados=0,descartados=0;
+  const cambiados=[];
+  for(const f of filas){
+    const l=limpiarFila(f);
+    if(!l){descartados++;continue;}
+    enCSV.add(l.id);
+    if(mapa.has(l.id)){Object.assign(mapa.get(l.id),l);actualizados++;cambiados.push(mapa.get(l.id));}
+    else {mapa.set(l.id,l);nuevos++;cambiados.push(l);}
+  }
+  const conservados=[...mapa.keys()].filter(id=>!enCSV.has(id)).length;
+  CATALOGO=[...mapa.values()]; indexar(); ultimaCarga=cambiados;
+  construirChipsCat(); construirChipsPais(); pintarEditoriales();
+  buscar(); filtrar(); pintarEstadoDatos();
+  const r=document.getElementById('resumen-carga');
+  r.hidden=false;
+  r.innerHTML=`<strong>Carga procesada</strong><br>
+    ${nuevos} título(s) nuevo(s)<br>
+    ${actualizados} actualizado(s)<br>
+    ${conservados} conservado(s) sin cambios (no venían en este archivo)<br>
+    ${descartados} fila(s) descartada(s) por datos incompletos`;
+  document.getElementById('guardar-supabase').hidden = !sb;
+}
+document.getElementById('guardar-supabase').addEventListener('click',async()=>{
+  if(!sb||!ultimaCarga){alert('Primero carga un CSV.');return;}
+  const btn=document.getElementById('guardar-supabase');
+  btn.disabled=true; btn.textContent='Guardando…';
+  try{
+    const limpio=ultimaCarga.map(({_t,_a,_e,...r})=>r);
+    for(let i=0;i<limpio.length;i+=500){
+      const {error}=await sb.from('catalogo_libros').upsert(limpio.slice(i,i+500),{onConflict:'id'});
+      if(error) throw error;
+    }
+    btn.textContent='Guardado ✓';
+    setTimeout(()=>{btn.textContent='Guardar en Supabase';btn.disabled=false;},2500);
+  }catch(e){
+    alert('No se pudo guardar: '+e.message);
+    btn.textContent='Guardar en Supabase'; btn.disabled=false;
+  }
+});
+document.getElementById('descargar-json').addEventListener('click',()=>{
+  const limpio=CATALOGO.map(({_t,_a,_e,...r})=>r);
+  const blob=new Blob([JSON.stringify(limpio)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='catalogo.json';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+});
+
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  if(!modalLibro.hidden) cerrarLibro();
+  else if(!modalLogin.hidden) modalLogin.hidden=true;
+});
+
+iniciar();
+</script>
+</body>
+</html>
