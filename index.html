@@ -675,6 +675,23 @@ let LIM_MIN = 0, LIM_MAX = 100000;
 
 const sinTildes = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 const norm = s => sinTildes(s).toLowerCase().trim();
+
+/* El sistema del proveedor invierte el artículo al final del título
+   ("RESISTENCIA, LA"). Lo devolvemos a su orden natural tanto para
+   buscar como para mostrar. */
+const ARTICULOS=['el','la','los','las','un','una','unos','unas','lo','the','a','an','le','les','il'];
+const RE_ARTICULO=new RegExp(',\\s*('+ARTICULOS.join('|')+')\\s*$','i');
+function tituloNatural(t){
+  t=(t||'').trim();
+  const m=t.match(RE_ARTICULO);
+  return m ? (m[1]+' '+t.replace(RE_ARTICULO,'')).trim() : t;
+}
+/* Además de la coincidencia literal, aceptamos que las palabras
+   aparezcan en cualquier orden: "la resistencia" encuentra
+   "RESISTENCIA, LA" aunque el texto exacto no coincida. */
+const palabras = s => norm(s).split(/[^a-z0-9]+/).filter(Boolean);
+const contieneTodas = (texto,toks) => toks.length>0 && toks.every(t=>texto.includes(t));
+
 const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pesos = n => '$' + Math.round(n).toLocaleString('es-CO');
 const fmtPVP = (p,v) => v ? pesos(p) : 'Precio por confirmar';
@@ -777,7 +794,15 @@ async function cargarCatalogo(){
   const res = await fetch('./catalogo.json');
   CATALOGO = await res.json();
 }
-function indexar(){ CATALOGO.forEach(i=>{ i._t=norm(i.titulo); i._a=norm(i.autor); i._e=norm(i.editorial); }); }
+function indexar(){
+  CATALOGO.forEach(i=>{
+    i._t=norm(i.titulo);
+    i._tn=norm(tituloNatural(i.titulo));
+    i._a=norm(i.autor);
+    i._e=norm(i.editorial);
+    i._todo=i._t+' '+i._tn+' '+i._a+' '+i._e;
+  });
+}
 
 async function cargarConsultas(){
   if(!sb) return;
@@ -829,13 +854,14 @@ function cerrarAC(){cajaAC.hidden=true;acActiva=-1;}
 document.addEventListener('click',e=>{if(!e.target.closest('.campo'))cerrarAC();});
 
 function sugerir(){
-  const q=norm(inputQ.value); acActiva=-1;
+  const q=norm(inputQ.value); const toks=palabras(inputQ.value); acActiva=-1;
   if(q.length<2){cerrarAC();return;}
   const vistos=new Set(), sug=[];
   for(const i of CATALOGO){ if(sug.length>=6)break;
-    if(i._t.includes(q)&&!vistos.has('t'+i.titulo)){vistos.add('t'+i.titulo);sug.push({v:i.titulo,tipo:'título'});}}
+    const nat=tituloNatural(i.titulo);
+    if((i._t.includes(q)||i._tn.includes(q)||contieneTodas(i._t,toks))&&!vistos.has('t'+nat)){vistos.add('t'+nat);sug.push({v:nat,tipo:'título'});}}
   for(const i of CATALOGO){ if(sug.length>=9)break;
-    if(i._a.includes(q)&&!vistos.has('a'+i.autor)){vistos.add('a'+i.autor);sug.push({v:i.autor,tipo:'autor'});}}
+    if((i._a.includes(q)||contieneTodas(i._a,toks))&&!vistos.has('a'+i.autor)){vistos.add('a'+i.autor);sug.push({v:i.autor,tipo:'autor'});}}
   for(const i of CATALOGO){ if(sug.length>=11)break;
     if(i._e.includes(q)&&!vistos.has('e'+i.editorial)){vistos.add('e'+i.editorial);sug.push({v:i.editorial,tipo:'editorial'});}}
   if(!sug.length){cerrarAC();return;}
@@ -853,23 +879,27 @@ document.getElementById('criterios').addEventListener('click',e=>{
 document.getElementById('orden-buscar').addEventListener('change',e=>{S.orden=e.target.value;buscar();});
 document.getElementById('mas-buscar').addEventListener('click',()=>{S.mostrados+=PAGINA;pintarBuscar();});
 
-function coincide(i,q){
+function coincide(i,q,toks){
   if(!q) return true;
-  if(S.criterio==='titulo') return i._t.includes(q);
-  if(S.criterio==='autor') return i._a.includes(q);
-  if(S.criterio==='editorial') return i._e.includes(q);
-  return i._t.includes(q)||i._a.includes(q)||i._e.includes(q);
+  if(S.criterio==='titulo')    return i._t.includes(q)||i._tn.includes(q)||contieneTodas(i._t,toks);
+  if(S.criterio==='autor')     return i._a.includes(q)||contieneTodas(i._a,toks);
+  if(S.criterio==='editorial') return i._e.includes(q)||contieneTodas(i._e,toks);
+  return i._t.includes(q)||i._tn.includes(q)||i._a.includes(q)||i._e.includes(q)||contieneTodas(i._todo,toks);
 }
-function puntaje(i,q){
+function puntaje(i,q,toks){
   let s=0;
-  if(i._t.startsWith(q))s+=100; else if(i._t.includes(q))s+=60;
-  if(i._a.startsWith(q))s+=50; else if(i._a.includes(q))s+=30;
-  if(i._e.startsWith(q))s+=20; else if(i._e.includes(q))s+=10;
+  // la coincidencia literal siempre pesa más que la de palabras sueltas
+  if(i._tn.startsWith(q)||i._t.startsWith(q)) s+=120;
+  else if(i._tn.includes(q)||i._t.includes(q)) s+=70;
+  else if(contieneTodas(i._t,toks)) s+=45;
+  if(i._a.startsWith(q)) s+=50; else if(i._a.includes(q)) s+=30;
+  else if(contieneTodas(i._a,toks)) s+=18;
+  if(i._e.startsWith(q)) s+=20; else if(i._e.includes(q)) s+=10;
   return s;
 }
-function ordenar(arr,modo,q){
-  if(modo==='relevancia'&&q) arr.sort((a,b)=>puntaje(b,q)-puntaje(a,q)||a.titulo.localeCompare(b.titulo,'es'));
-  else if(modo==='titulo') arr.sort((a,b)=>a.titulo.localeCompare(b.titulo,'es'));
+function ordenar(arr,modo,q,toks){
+  if(modo==='relevancia'&&q) arr.sort((a,b)=>puntaje(b,q,toks)-puntaje(a,q,toks)||a.titulo.localeCompare(b.titulo,'es'));
+  else if(modo==='titulo') arr.sort((a,b)=>tituloNatural(a.titulo).localeCompare(tituloNatural(b.titulo),'es'));
   else if(modo==='precio-asc') arr.sort((a,b)=>(a.pvp||0)-(b.pvp||0));
   else if(modo==='precio-desc') arr.sort((a,b)=>(b.pvp||0)-(a.pvp||0));
   else arr.sort((a,b)=>ORDEN_DISP[a.disponibilidad]-ORDEN_DISP[b.disponibilidad]||a.titulo.localeCompare(b.titulo,'es'));
@@ -877,6 +907,7 @@ function ordenar(arr,modo,q){
 }
 function buscar(){
   const q=norm(inputQ.value);
+  const toks=palabras(inputQ.value);
   const hayQ=q.length>0;
   document.getElementById('bloque-top').style.display = hayQ?'none':'block';
   document.getElementById('barra-buscar').hidden = !hayQ;
@@ -886,8 +917,8 @@ function buscar(){
     document.getElementById('sub-buscar').textContent=`${CATALOGO.length} títulos en el catálogo. Busca por título, autor o editorial.`;
     return;
   }
-  const out=CATALOGO.filter(i=>coincide(i,q)&&i.disponibilidad!=='Agotado');
-  ordenar(out,S.orden,q);
+  const out=CATALOGO.filter(i=>coincide(i,q,toks)&&i.disponibilidad!=='Agotado');
+  ordenar(out,S.orden,q,toks);
   S.resultados=out; S.mostrados=PAGINA;
   pintarBuscar();
 }
@@ -904,10 +935,10 @@ function pintarBuscar(){
 }
 
 function itemHTML(i){
-  return `<div class="item" data-id="${esc(i.id)}" tabindex="0" role="button" aria-label="Ver ${esc(i.titulo)}">
+  return `<div class="item" data-id="${esc(i.id)}" tabindex="0" role="button" aria-label="Ver ${esc(tituloNatural(i.titulo))}">
     <div class="franja" style="background:${CAT_COLOR[i.categoria]||'var(--cat-sin)'};"></div>
     <div class="cuerpo">
-      <div class="l1"><h3>${esc(i.titulo)}</h3><span class="precio ${i.pvp_valido?'':'pend'}">${fmtPVP(i.pvp,i.pvp_valido)}</span></div>
+      <div class="l1"><h3>${esc(tituloNatural(i.titulo))}</h3><span class="precio ${i.pvp_valido?'':'pend'}">${fmtPVP(i.pvp,i.pvp_valido)}</span></div>
       <div class="l2"><span>${esc(i.autor)}</span><span class="sep-punto">·</span><span>${esc(i.editorial)}</span>
         <span class="punto" data-e="${i.disponibilidad}">${i.disponibilidad}</span></div>
     </div></div>`;
@@ -933,7 +964,7 @@ function pintarTop(){
   }
   cont.innerHTML=libros.map((i,n)=>`<button class="rank" data-id="${esc(i.id)}">
     <span class="n">${n+1}</span>
-    <span class="txt"><strong>${esc(i.titulo)}</strong><span>${esc(i.autor)} · ${esc(i.editorial)}</span></span>
+    <span class="txt"><strong>${esc(tituloNatural(i.titulo))}</strong><span>${esc(i.autor)} · ${esc(i.editorial)}</span></span>
     <span class="veces">${consultas[i.id]} consulta${consultas[i.id]===1?'':'s'}</span></button>`).join('');
   cont.querySelectorAll('.rank').forEach(b=>b.addEventListener('click',()=>abrirLibro(b.dataset.id)));
 }
@@ -1101,7 +1132,7 @@ function filtrar(){
     if(i.disponibilidad==='Agotado') return conAgotados;
     return visibles.includes(i.disponibilidad);
   });
-  ordenar(out,S.ordenExp,'');
+  ordenar(out,S.ordenExp,'',[]);
   S.resultadosExp=out; S.mostradosExp=PAGINA;
   pintarExplorar();
 }
@@ -1151,7 +1182,7 @@ document.getElementById('q-ed').addEventListener('keydown',e=>{if(e.key==='Enter
 document.getElementById('limpiar-ed').addEventListener('click',()=>{document.getElementById('q-ed').value='';S.qEd='';pintarEditoriales();});
 function abrirEditorial(nombre){
   const libros=CATALOGO.filter(i=>i.editorial===nombre);
-  ordenar(libros,'disponibilidad','');
+  ordenar(libros,'disponibilidad','',[]);
   document.getElementById('vista-lista-editoriales').hidden=true;
   document.getElementById('vista-detalle-editorial').hidden=false;
   document.getElementById('nombre-editorial').textContent=nombre;
@@ -1181,18 +1212,18 @@ function abrirLibro(id){
   const encabezado = i.portada_url
     ? `<div class="portada-real">
          <button class="cerrar claro" id="cerrar-libro" aria-label="Cerrar">✕</button>
-         <img src="${esc(i.portada_url)}" alt="Portada de ${esc(i.titulo)}"
+         <img src="${esc(i.portada_url)}" alt="Portada de ${esc(tituloNatural(i.titulo))}"
               onerror="this.closest('.portada-real').style.display='none'">
        </div>
        <div class="encabezado-modal">
          <div class="cat">${esc(i.categoria)}</div>
-         <h2>${esc(i.titulo)}</h2>
+         <h2>${esc(tituloNatural(i.titulo))}</h2>
          <div class="aut">${esc(i.autor)}</div>
        </div>`
     : `<div class="portada" style="background:${color};">
          <button class="cerrar" id="cerrar-libro" aria-label="Cerrar">✕</button>
          <div class="cat">${esc(i.categoria)}</div>
-         <h2>${esc(i.titulo)}</h2>
+         <h2>${esc(tituloNatural(i.titulo))}</h2>
          <div class="aut">${esc(i.autor)}</div>
        </div>`;
 
@@ -1452,7 +1483,7 @@ document.getElementById('guardar-enriq').addEventListener('click', async ()=>{
   btn.disabled=true; btn.textContent='Guardando…';
   try{
     const filas=CATALOGO.filter(x=>x.enriquecido_en||x.fuente_enriquecimiento)
-      .map(({_t,_a,_e,gb_intentado,...r})=>r);
+      .map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
     for(let i=0;i<filas.length;i+=400){
       const {error}=await sb.from('catalogo_libros').upsert(filas.slice(i,i+400),{onConflict:'id'});
       if(error) throw error;
@@ -1503,7 +1534,7 @@ document.getElementById('guardar-supabase').addEventListener('click',async()=>{
   const btn=document.getElementById('guardar-supabase');
   btn.disabled=true; btn.textContent='Guardando…';
   try{
-    const limpio=ultimaCarga.map(({_t,_a,_e,gb_intentado,...r})=>r);
+    const limpio=ultimaCarga.map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
     for(let i=0;i<limpio.length;i+=500){
       const {error}=await sb.from('catalogo_libros').upsert(limpio.slice(i,i+500),{onConflict:'id'});
       if(error) throw error;
@@ -1516,7 +1547,7 @@ document.getElementById('guardar-supabase').addEventListener('click',async()=>{
   }
 });
 document.getElementById('descargar-json').addEventListener('click',()=>{
-  const limpio=CATALOGO.map(({_t,_a,_e,gb_intentado,...r})=>r);
+  const limpio=CATALOGO.map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
   const blob=new Blob([JSON.stringify(limpio)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download='catalogo.json';
