@@ -350,6 +350,43 @@ select.orden{
 .modal-admin .btn-primario{width:100%;padding:13px;margin-top:4px;}
 .msg-error{color:var(--rojo);font-size:0.88rem;margin:10px 0 0;}
 
+.portada-real{
+  background:var(--surface-2);
+  padding:30px 30px 24px;text-align:center;position:relative;
+  border-bottom:1px solid var(--separador);
+}
+.portada-real img{
+  max-height:270px;max-width:72%;
+  border-radius:5px;box-shadow:0 10px 30px rgba(0,0,0,0.22);
+}
+.cerrar.claro{background:rgba(0,0,0,0.07);color:var(--texto-2);}
+.cerrar.claro:hover{background:rgba(0,0,0,0.13);}
+.encabezado-modal{padding:22px 30px 0;}
+.encabezado-modal .cat{font-size:0.78rem;color:var(--texto-3);font-weight:500;margin-bottom:8px;}
+.encabezado-modal h2{font-size:1.42rem;font-weight:700;letter-spacing:-0.02em;line-height:1.2;margin:0 0 5px;}
+.encabezado-modal .aut{font-size:0.96rem;color:var(--texto-2);}
+.sinopsis{
+  margin-top:18px;padding-top:18px;
+  border-top:1px solid var(--separador);
+}
+.sinopsis h4{font-size:0.8rem;font-weight:600;color:var(--texto-3);margin:0 0 8px;text-transform:uppercase;letter-spacing:0.04em;}
+.sinopsis p{font-size:0.93rem;color:var(--texto-2);line-height:1.62;margin:0;}
+.sinopsis .fuente{font-size:0.75rem;color:var(--texto-3);margin-top:10px;}
+
+.progreso{height:6px;background:rgba(120,120,128,0.18);border-radius:3px;overflow:hidden;margin:16px 0 10px;}
+.progreso i{display:block;height:100%;width:0;background:var(--azul);border-radius:3px;transition:width .25s var(--ease);}
+.log-enriq{
+  font-size:0.88rem;color:var(--texto-2);line-height:1.7;
+  max-height:190px;overflow-y:auto;
+  background:var(--surface-2);border-radius:var(--r-md);
+  padding:12px 14px;margin-top:10px;
+}
+.log-enriq[hidden]{display:none;}
+.cifras{display:flex;gap:22px;flex-wrap:wrap;margin-top:14px;}
+.cifra{min-width:96px;}
+.cifra b{display:block;font-size:1.4rem;font-weight:700;letter-spacing:-0.02em;}
+.cifra span{font-size:0.79rem;color:var(--texto-3);}
+
 .zona-drop{
   border:1.5px dashed var(--separador-fuerte);
   border-radius:var(--r-md);padding:22px;text-align:center;background:var(--surface-2);
@@ -538,6 +575,30 @@ footer.pie{border-top:1px solid var(--separador);padding:26px 0 40px;font-size:0
       <div class="acciones-filtro" style="margin-top:16px;">
         <button class="btn-primario" id="guardar-supabase" style="padding:11px 24px;" hidden>Guardar en Supabase</button>
         <button class="link-plano" id="descargar-json">Descargar catalogo.json</button>
+      </div>
+    </div>
+
+    <div class="tarjeta-filtro">
+      <h2>Portadas y sinopsis por ISBN</h2>
+      <p class="ayuda">Se consulta primero Open Library (rápida, por lotes, solo portadas) y después Google Books para lo que falte (portadas y sinopsis). Se puede detener y retomar: los títulos ya resueltos se saltan.</p>
+
+      <div class="cifras" id="cifras-enriq"></div>
+
+      <div class="acciones-filtro" style="margin-top:18px;">
+        <button class="btn-primario" id="enriq-ol" style="padding:11px 22px;">Buscar portadas · Open Library</button>
+        <button class="btn-primario" id="enriq-gb" style="padding:11px 22px;background:var(--c-autor);">Buscar sinopsis · Google Books</button>
+        <button class="link-plano" id="enriq-parar" hidden>Detener</button>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:0.87rem;color:var(--texto-2);">
+        <input type="checkbox" id="enriq-reintentar"> Reintentar también los que ya se buscaron sin éxito
+      </label>
+
+      <div class="progreso" id="barra-progreso" hidden><i id="progreso-i"></i></div>
+      <div class="log-enriq" id="log-enriq" hidden></div>
+
+      <div class="acciones-filtro" style="margin-top:16px;">
+        <button class="btn-primario" id="guardar-enriq" style="padding:11px 24px;" hidden>Guardar en Supabase</button>
       </div>
     </div>
 
@@ -1114,22 +1175,48 @@ function abrirLibro(id){
   const i=CATALOGO.find(x=>x.id===id); if(!i)return;
   focoPrevio=document.activeElement;
   const color=CAT_COLOR[i.categoria]||'var(--cat-sin)';
+
+  // Con portada real: imagen sobre fondo claro y los datos debajo.
+  // Sin portada: bloque de color con el título, como hasta ahora.
+  const encabezado = i.portada_url
+    ? `<div class="portada-real">
+         <button class="cerrar claro" id="cerrar-libro" aria-label="Cerrar">✕</button>
+         <img src="${esc(i.portada_url)}" alt="Portada de ${esc(i.titulo)}"
+              onerror="this.closest('.portada-real').style.display='none'">
+       </div>
+       <div class="encabezado-modal">
+         <div class="cat">${esc(i.categoria)}</div>
+         <h2>${esc(i.titulo)}</h2>
+         <div class="aut">${esc(i.autor)}</div>
+       </div>`
+    : `<div class="portada" style="background:${color};">
+         <button class="cerrar" id="cerrar-libro" aria-label="Cerrar">✕</button>
+         <div class="cat">${esc(i.categoria)}</div>
+         <h2>${esc(i.titulo)}</h2>
+         <div class="aut">${esc(i.autor)}</div>
+       </div>`;
+
+  const sinopsis = i.sinopsis
+    ? `<div class="sinopsis">
+         <h4>Sinopsis</h4>
+         <p>${esc(i.sinopsis)}</p>
+         ${i.fuente_sinopsis==='google_books'?'<p class="fuente">Descripción proporcionada por Google Books.</p>':''}
+       </div>`
+    : '';
+
   contLibro.innerHTML=`
-    <div class="portada" style="background:${color};">
-      <button class="cerrar" id="cerrar-libro" aria-label="Cerrar">✕</button>
-      <div class="cat">${esc(i.categoria)}</div>
-      <h2>${esc(i.titulo)}</h2>
-      <div class="aut">${esc(i.autor)}</div>
-    </div>
+    ${encabezado}
     <div class="modal-cuerpo">
       <div class="campo-det"><span class="k">Editorial</span><span class="v">${esc(i.editorial)}</span></div>
       ${i.coleccion?`<div class="campo-det"><span class="k">Colección</span><span class="v">${esc(i.coleccion)}</span></div>`:''}
+      ${i.anio_publicacion?`<div class="campo-det"><span class="k">Año de publicación</span><span class="v">${esc(i.anio_publicacion)}</span></div>`:''}
       <div class="campo-det"><span class="k">Precio</span><span class="v">${fmtPVP(i.pvp,i.pvp_valido)}</span></div>
       <div class="campo-det"><span class="k">Disponibilidad</span><span class="v punto" data-e="${i.disponibilidad}">${i.disponibilidad}</span></div>
       ${i.isbn?`<div class="campo-det"><span class="k">ISBN</span><span class="v">${esc(i.isbn)}</span></div>`:''}
       ${i.pais_idioma&&i.pais_idioma.length?`<div class="campo-det"><span class="k">Origen</span><span class="v">${esc(i.pais_idioma.join(', '))}</span></div>`:''}
       ${i.epoca?`<div class="campo-det"><span class="k">Época</span><span class="v">${esc(i.epoca)}</span></div>`:''}
       ${i.ilustrado?`<div class="campo-det"><span class="k">Formato</span><span class="v">Libro ilustrado</span></div>`:''}
+      ${sinopsis}
       ${i.materias_original?`<p class="nota-mat">Materia registrada por el proveedor: ${esc(i.materias_original)}</p>`:''}
     </div>`;
   modalLibro.hidden=false;
@@ -1174,6 +1261,7 @@ function actualizarAcceso(){
   if(usuario){
     document.getElementById('sub-admin').textContent=`Sesión iniciada como ${usuario.email}.`;
     pintarEstadoDatos();
+    cifrasEnriq();
     document.getElementById('guardar-supabase').hidden = !sb;
   }
 }
@@ -1182,6 +1270,8 @@ function pintarEstadoDatos(){
   const sinCat=CATALOGO.filter(x=>x.categoria==='Sin clasificar').length;
   const sinPrecio=CATALOGO.filter(x=>!x.pvp_valido).length;
   const conISBN=CATALOGO.filter(x=>x.isbn).length;
+  const conPortada=CATALOGO.filter(x=>x.portada_url).length;
+  const conSinopsis=CATALOGO.filter(x=>x.sinopsis).length;
   const eds=new Set(CATALOGO.map(x=>x.editorial)).size;
   document.getElementById('estado-datos').innerHTML=`
     <div class="campo-det"><span class="k">Títulos en el catálogo</span><span class="v">${total}</span></div>
@@ -1189,8 +1279,192 @@ function pintarEstadoDatos(){
     <div class="campo-det"><span class="k">Sin categoría temática</span><span class="v">${sinCat}</span></div>
     <div class="campo-det"><span class="k">Sin precio registrado</span><span class="v">${sinPrecio}</span></div>
     <div class="campo-det"><span class="k">Con ISBN</span><span class="v">${conISBN}</span></div>
+    <div class="campo-det"><span class="k">Con portada</span><span class="v">${conPortada}</span></div>
+    <div class="campo-det"><span class="k">Con sinopsis</span><span class="v">${conSinopsis}</span></div>
     <div class="campo-det"><span class="k">Origen de los datos</span><span class="v">${sb?'Supabase':'catalogo.json'}</span></div>`;
 }
+
+/* =========================================================
+   ENRIQUECIMIENTO POR ISBN
+   Open Library: por lotes de 25, solo portadas y año.
+   Google Books: uno por uno, portadas y sinopsis.
+   Todo queda marcado con fuente_enriquecimiento para poder
+   retomar sin repetir consultas ya hechas.
+   ========================================================= */
+let parar=false, corriendo=false, huboCambios=false;
+
+const logEl=()=>document.getElementById('log-enriq');
+function log(txt){
+  const el=logEl(); el.hidden=false;
+  el.insertAdjacentHTML('beforeend', esc(txt)+'<br>');
+  el.scrollTop=el.scrollHeight;
+}
+function limpiarLog(){ const el=logEl(); el.innerHTML=''; el.hidden=true; }
+function progreso(hecho,total){
+  const b=document.getElementById('barra-progreso');
+  b.hidden=false;
+  document.getElementById('progreso-i').style.width=(total?(hecho/total*100):0)+'%';
+}
+function modoCorriendo(si){
+  corriendo=si;
+  document.getElementById('enriq-ol').disabled=si;
+  document.getElementById('enriq-gb').disabled=si;
+  document.getElementById('enriq-parar').hidden=!si;
+}
+function cifrasEnriq(){
+  const n=CATALOGO.length;
+  const conISBN=CATALOGO.filter(x=>x.isbn).length;
+  const conPortada=CATALOGO.filter(x=>x.portada_url).length;
+  const conSinopsis=CATALOGO.filter(x=>x.sinopsis).length;
+  const el=document.getElementById('cifras-enriq');
+  if(!el) return;
+  el.innerHTML=`
+    <div class="cifra"><b>${conISBN}</b><span>con ISBN, de ${n}</span></div>
+    <div class="cifra"><b>${conPortada}</b><span>con portada (${conISBN?Math.round(conPortada/conISBN*100):0}%)</span></div>
+    <div class="cifra"><b>${conSinopsis}</b><span>con sinopsis (${conISBN?Math.round(conSinopsis/conISBN*100):0}%)</span></div>`;
+}
+const esperar=ms=>new Promise(r=>setTimeout(r,ms));
+const httpsSeguro=u=>(u||'').replace(/^http:\/\//,'https://').replace(/&edge=curl/,'');
+
+function pendientes(campo){
+  const reintentar=document.getElementById('enriq-reintentar').checked;
+  return CATALOGO.filter(x=>{
+    if(!x.isbn) return false;
+    if(x[campo]) return false;
+    if(!reintentar && x.fuente_enriquecimiento==='no_encontrado') return false;
+    if(!reintentar && campo==='portada_url' && x.fuente_enriquecimiento==='openlibrary_sin_portada') return false;
+    return true;
+  });
+}
+
+document.getElementById('enriq-parar').addEventListener('click',()=>{ parar=true; log('Deteniendo…'); });
+
+/* ---------- Open Library, por lotes ---------- */
+document.getElementById('enriq-ol').addEventListener('click', async ()=>{
+  const lista=pendientes('portada_url');
+  limpiarLog(); parar=false; modoCorriendo(true);
+  if(!lista.length){ log('No hay títulos pendientes de portada.'); modoCorriendo(false); return; }
+  log(`${lista.length} títulos sin portada. Consultando Open Library en lotes de 25…`);
+  const TAM=25;
+  let hechos=0, encontrados=0, conPortada=0;
+  for(let i=0;i<lista.length && !parar;i+=TAM){
+    const lote=lista.slice(i,i+TAM);
+    const keys=lote.map(x=>'ISBN:'+encodeURIComponent(x.isbn)).join(',');
+    try{
+      const r=await fetch(`https://openlibrary.org/api/books?bibkeys=${keys}&format=json&jscmd=data`);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const d=await r.json();
+      for(const x of lote){
+        const v=d['ISBN:'+x.isbn];
+        if(v){
+          encontrados++;
+          const anio=(String(v.publish_date||'').match(/\d{4}/)||[])[0];
+          if(anio) x.anio_publicacion=Number(anio);
+          if(v.cover && (v.cover.large||v.cover.medium)){
+            x.portada_url=httpsSeguro(v.cover.large||v.cover.medium);
+            x.fuente_enriquecimiento='openlibrary';
+            x.enriquecido_en=new Date().toISOString();
+            conPortada++; huboCambios=true;
+          }else{
+            x.fuente_enriquecimiento='openlibrary_sin_portada';
+            huboCambios=true;
+          }
+        }else{
+          x.fuente_enriquecimiento='no_encontrado';
+          huboCambios=true;
+        }
+      }
+    }catch(e){
+      log(`Error en el lote ${Math.floor(i/TAM)+1}: ${e.message}. Continúo con el siguiente.`);
+    }
+    hechos+=lote.length;
+    progreso(hechos,lista.length);
+    if(hechos%250<TAM) log(`${hechos} de ${lista.length} revisados · ${conPortada} portadas encontradas`);
+    await esperar(350);
+  }
+  log(`Listo. Revisados ${hechos}. Registros hallados: ${encontrados}. Portadas nuevas: ${conPortada}.`);
+  if(conPortada===0 && encontrados>0) log('Open Library conoce estos libros pero no tiene la imagen de portada cargada.');
+  terminarPasada();
+});
+
+/* ---------- Google Books, uno por uno ---------- */
+document.getElementById('enriq-gb').addEventListener('click', async ()=>{
+  const lista=CATALOGO.filter(x=>{
+    if(!x.isbn) return false;
+    if(x.sinopsis && x.portada_url) return false;
+    const reintentar=document.getElementById('enriq-reintentar').checked;
+    if(!reintentar && x.gb_intentado) return false;
+    return true;
+  });
+  limpiarLog(); parar=false; modoCorriendo(true);
+  if(!lista.length){ log('No hay títulos pendientes para Google Books.'); modoCorriendo(false); return; }
+  log(`${lista.length} títulos por consultar. Google Books se consulta uno por uno, así que va más lento.`);
+  log('Puedes detenerlo cuando quieras y retomarlo después; lo ya consultado no se repite.');
+  let hechos=0, conSinopsis=0, conPortada=0, errores=0;
+  for(const x of lista){
+    if(parar) break;
+    try{
+      const r=await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(x.isbn)}`);
+      if(r.status===429){ log('Google está limitando las consultas. Detengo aquí; retoma en unos minutos.'); break; }
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const d=await r.json();
+      x.gb_intentado=true; huboCambios=true;
+      if(d.totalItems>0){
+        const vi=d.items[0].volumeInfo||{};
+        if(!x.portada_url && vi.imageLinks){
+          x.portada_url=httpsSeguro(vi.imageLinks.thumbnail||vi.imageLinks.smallThumbnail);
+          x.fuente_enriquecimiento='google_books'; conPortada++;
+        }
+        if(!x.sinopsis && vi.description){
+          x.sinopsis=vi.description.trim();
+          x.fuente_sinopsis='google_books'; conSinopsis++;
+        }
+        if(!x.anio_publicacion && vi.publishedDate){
+          const a=(String(vi.publishedDate).match(/\d{4}/)||[])[0];
+          if(a) x.anio_publicacion=Number(a);
+        }
+        x.enriquecido_en=new Date().toISOString();
+      }
+    }catch(e){
+      errores++;
+      if(errores===1) log(`Error de red: ${e.message}. Sigo con los demás.`);
+      if(errores>25){ log('Demasiados errores seguidos, detengo la pasada.'); break; }
+    }
+    hechos++;
+    progreso(hechos,lista.length);
+    if(hechos%50===0) log(`${hechos} de ${lista.length} · ${conSinopsis} sinopsis · ${conPortada} portadas`);
+    await esperar(220);
+  }
+  log(`Pasada terminada. Consultados ${hechos}. Sinopsis nuevas: ${conSinopsis}. Portadas nuevas: ${conPortada}.`);
+  terminarPasada();
+});
+
+function terminarPasada(){
+  modoCorriendo(false);
+  cifrasEnriq();
+  pintarEstadoDatos();
+  if(huboCambios) document.getElementById('guardar-enriq').hidden=!sb;
+}
+
+document.getElementById('guardar-enriq').addEventListener('click', async ()=>{
+  if(!sb) return;
+  const btn=document.getElementById('guardar-enriq');
+  btn.disabled=true; btn.textContent='Guardando…';
+  try{
+    const filas=CATALOGO.filter(x=>x.enriquecido_en||x.fuente_enriquecimiento)
+      .map(({_t,_a,_e,gb_intentado,...r})=>r);
+    for(let i=0;i<filas.length;i+=400){
+      const {error}=await sb.from('catalogo_libros').upsert(filas.slice(i,i+400),{onConflict:'id'});
+      if(error) throw error;
+    }
+    btn.textContent='Guardado ✓';
+    log(`Guardados ${filas.length} registros en Supabase.`);
+    setTimeout(()=>{btn.textContent='Guardar en Supabase';btn.disabled=false;},2500);
+  }catch(e){
+    alert('No se pudo guardar: '+e.message);
+    btn.textContent='Guardar en Supabase'; btn.disabled=false;
+  }
+});
 
 /* ---------- carga de CSV ---------- */
 document.getElementById('csv').addEventListener('change',e=>{
@@ -1229,7 +1503,7 @@ document.getElementById('guardar-supabase').addEventListener('click',async()=>{
   const btn=document.getElementById('guardar-supabase');
   btn.disabled=true; btn.textContent='Guardando…';
   try{
-    const limpio=ultimaCarga.map(({_t,_a,_e,...r})=>r);
+    const limpio=ultimaCarga.map(({_t,_a,_e,gb_intentado,...r})=>r);
     for(let i=0;i<limpio.length;i+=500){
       const {error}=await sb.from('catalogo_libros').upsert(limpio.slice(i,i+500),{onConflict:'id'});
       if(error) throw error;
@@ -1242,7 +1516,7 @@ document.getElementById('guardar-supabase').addEventListener('click',async()=>{
   }
 });
 document.getElementById('descargar-json').addEventListener('click',()=>{
-  const limpio=CATALOGO.map(({_t,_a,_e,...r})=>r);
+  const limpio=CATALOGO.map(({_t,_a,_e,gb_intentado,...r})=>r);
   const blob=new Blob([JSON.stringify(limpio)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download='catalogo.json';
