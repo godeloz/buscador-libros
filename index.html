@@ -452,6 +452,12 @@ select.orden{
   border:none;background:var(--azul-hondo);color:#fff;
   font-size:0.85rem;font-weight:600;cursor:pointer;
 }
+.progreso-guardado .detalle-error{
+  margin-top:6px;padding:8px 10px;
+  background:rgba(0,0,0,0.04);border-radius:var(--r-sm);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:0.78rem;color:var(--texto);word-break:break-word;
+}
 
 .btn-lapiz{
   position:absolute;top:9px;right:9px;
@@ -1832,8 +1838,12 @@ function terminarPasada(){
    nunca duplica ni corrompe nada.
    ========================================================= */
 async function guardarLotesConReintentos(filas, {tam=500, intentos=3, onProgreso=()=>{}}={}){
+  // Salvaguarda: si el mismo id aparece dos veces en la lista (aunque ya se
+  // depura antes de llegar aquí), un upsert con un id repetido dentro del
+  // mismo lote lo rechaza Postgres entero — se deja solo la última versión.
+  const sinRepetidos = [...new Map(filas.map(x=>[x.id,x])).values()];
   const lotes=[];
-  for(let i=0;i<filas.length;i+=tam) lotes.push(filas.slice(i,i+tam));
+  for(let i=0;i<sinRepetidos.length;i+=tam) lotes.push(sinRepetidos.slice(i,i+tam));
   let hechos=0; const fallidos=[];
   for(let li=0; li<lotes.length; li++){
     const lote=lotes[li];
@@ -1849,23 +1859,34 @@ async function guardarLotesConReintentos(filas, {tam=500, intentos=3, onProgreso
       }
     }
     if(exito) hechos+=lote.length;
-    else fallidos.push({lote:li+1, filas:lote, error:ultimoError?.message||'error desconocido'});
-    onProgreso({hechos, total:filas.length, loteActual:li+1, totalLotes:lotes.length, fallidos:fallidos.length});
+    else fallidos.push({lote:li+1, filas:lote, error:ultimoError?.message||ultimoError?.error_description||'error desconocido'});
+    onProgreso({hechos, total:sinRepetidos.length, loteActual:li+1, totalLotes:lotes.length, fallidos:fallidos.length});
   }
-  return {hechos, total:filas.length, totalLotes:lotes.length, fallidos};
+  return {hechos, total:sinRepetidos.length, totalLotes:lotes.length, fallidos};
 }
 /* Pinta el progreso y, si algo falló, deja un botón para reintentar
-   solo esos lotes — no hay que volver a cargar ni recalcular nada. */
+   solo esos lotes — no hay que volver a cargar ni recalcular nada.
+   Muestra el mensaje real que devolvió Supabase: si el mismo error se
+   repite exacto en el reintento, casi seguro no es la conexión sino un
+   dato puntual que hay que revisar. */
 function pintarProgresoGuardado(contenedorId, resultado, alReintentar){
   const el=document.getElementById(contenedorId);
   el.hidden=false;
-  const nFallidos = Array.isArray(resultado.fallidos) ? resultado.fallidos.length : (resultado.fallidos||0);
+  const esFinal = Array.isArray(resultado.fallidos);
+  const nFallidos = esFinal ? resultado.fallidos.length : (resultado.fallidos||0);
   const pct = resultado.total ? Math.round((resultado.hechos/resultado.total)*100) : 100;
   el.classList.toggle('con-fallos', nFallidos>0);
+  let detalleError='';
+  if(esFinal && nFallidos>0){
+    const mensajesUnicos=[...new Set(resultado.fallidos.map(f=>f.error))];
+    detalleError = mensajesUnicos.map(m=>`<div class="detalle-error">${esc(m)}</div>`).join('');
+  }
   el.innerHTML = `
     <div>${resultado.hechos} de ${resultado.total} registros guardados${resultado.totalLotes>1?` (lote ${resultado.loteActual||resultado.totalLotes} de ${resultado.totalLotes})`:''}</div>
     <div class="barra"><i style="width:${pct}%"></i></div>
-    ${nFallidos>0 ? `<div>${nFallidos} lote(s) no se pudieron guardar (seguramente por la conexión). El resto sí quedó guardado.</div>
+    ${nFallidos>0 ? `<div>${nFallidos} lote(s) no se pudieron guardar. ${esFinal?'Supabase respondió:':''}</div>
+       ${detalleError}
+       <div style="margin-top:4px;">El resto sí quedó guardado.</div>
        <button class="btn-reintentar" id="btn-reintentar-${contenedorId}">Reintentar lo que falló</button>` : ''}
   `;
   if(nFallidos>0){
@@ -2083,7 +2104,16 @@ function procesarCSV(filas){
   }
 
   const conservados=[...mapa.keys()].filter(id=>!enCSV.has(id)).length;
-  CATALOGO=[...mapa.values()]; indexar(); ultimaCarga=cambiados;
+  // Si el mismo ISBN aparece más de una vez DENTRO del archivo que se sube,
+  // el mismo libro queda empujado varias veces a "cambiados" (todas
+  // apuntando al mismo registro ya fusionado). Sin este paso, dos filas
+  // repetidas podían caer en el mismo lote de guardado y Postgres rechaza
+  // esa petición completa por tener el mismo id dos veces en un solo
+  // upsert — un error que no es de conexión y que por eso fallaba igual
+  // sin importar cuántas veces se reintentara.
+  const repetidosInternos = cambiados.length - new Set(cambiados.map(x=>x.id)).size;
+  ultimaCarga = [...new Map(cambiados.map(x=>[x.id,x])).values()];
+  CATALOGO=[...mapa.values()]; indexar();
   construirChipsCat(); construirChipsPais(); pintarEditoriales();
   buscar(); filtrar(); pintarEstadoDatos();
 
@@ -2094,7 +2124,8 @@ function procesarCSV(filas){
     ${actualizados} actualizado(s)<br>
     ${conservados} conservado(s) sin cambios (no venían en este archivo)<br>
     ${descartados} fila(s) descartada(s)${sinDatosParaCrear?` (${sinDatosParaCrear} sin título/editorial suficiente para crear una ficha nueva)`:''}
-    ${edicionesMultiples?`<br>${edicionesMultiples} título(s) detectado(s) con más de un ISBN — se conservan como fichas separadas`:''}`;
+    ${edicionesMultiples?`<br>${edicionesMultiples} título(s) detectado(s) con más de un ISBN — se conservan como fichas separadas`:''}
+    ${repetidosInternos?`<br>${repetidosInternos} fila(s) con el mismo ISBN repetido dentro de este mismo archivo — se guarda una sola vez cada una`:''}`;
   document.getElementById('guardar-supabase').hidden = !sb;
 }
 document.getElementById('guardar-supabase').addEventListener('click',async()=>{
