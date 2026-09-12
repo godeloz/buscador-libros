@@ -714,7 +714,7 @@ footer.pie{margin-top:20px;background:var(--surface);border-top:1px solid var(--
 
     <div class="tarjeta-filtro">
       <h2>Actualizar catálogo desde un CSV</h2>
-      <p class="ayuda">Los títulos nuevos se agregan, los que ya existen se actualizan con los datos nuevos, y los que no aparezcan en este archivo se conservan sin cambios.</p>
+      <p class="ayuda">Acepta los formatos que ya usas —el propio del inventario o los reportes del distribuidor, con columnas como "Nombre de la Editorial" o "Cantidad en inventario"— sin que tengas que renombrar nada. Los títulos nuevos se agregan; los que ya existen se actualizan campo por campo con lo que traiga el archivo; lo que no aparezca hoy se conserva igual. El precio y las existencias siempre se refrescan con el dato más reciente. La portada y la reseña solo se completan si el libro todavía no las tenía — nunca se pisa una que ya hayas conseguido por API o a mano. Dos ISBN de una misma obra (dos ediciones) se guardan siempre por separado.</p>
       <div class="zona-drop"><input type="file" id="csv" accept=".csv"></div>
       <div class="resumen" id="resumen-carga" hidden></div>
       <div class="acciones-filtro" style="margin-top:16px;">
@@ -840,8 +840,8 @@ footer.pie{margin-top:20px;background:var(--surface);border-top:1px solid var(--
    Si los dejas vacíos, la app funciona igual leyendo
    catalogo.json, pero sin login ni conteo compartido.
    ========================================================= */
-const SUPABASE_URL = 'https://dbqlbkrbbhkuhznzugiw.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_wIwEYrKj69kH-W8AZqwxzg_W1x0KOVV';
+const SUPABASE_URL = '';
+const SUPABASE_ANON_KEY = '';
 
 const CAT_COLOR = {
   'Narrativa / Ficción':'var(--cat-narrativa)','Poesía':'var(--cat-poesia)',
@@ -948,27 +948,51 @@ function catLibre(m){
   if(['CUENTO','RELATO','NARRATIVA','NOVELA'].some(w=>m.includes(w))) return 'Narrativa / Ficción';
   return 'Sin clasificar';
 }
-function limpiarFila(r){
-  const titulo=(r['Título']||'').trim(), autor=(r['Autor']||'').trim(), editorial=(r['Editorial']||'').trim();
-  const pvpRaw=(r['PVP']||'').trim();
-  if(!titulo||!editorial||!pvpRaw) return null;
-  const isbn=(r['ISBN']||'').trim(), materias=(r['Materias']||'').trim(), M=materias.toUpperCase();
-  const coleccion=(r['Colección']||'').trim();
-  const pvp=parseFloat(String(pvpRaw).replace('$','').replace(/,/g,'').trim())||0;
-  const stock=parseInt(r['Stock Total']||'0')||0;
-  let categoria = materias.startsWith('THEMA') ? catThema(materias.split('->').map(x=>x.trim()))
-                : materias ? catLibre(M) : 'Sin clasificar';
+/* Los archivos que llegan a diario no siempre usan los mismos encabezados
+   (el inventario propio dice "Editorial" y "Stock Total"; los reportes del
+   distribuidor dicen "Nombre de la Editorial" y "Cantidad en inventario al
+   momento de la carga"; un reporte de solo precios trae apenas "Precio" y
+   "Stock"). Esta función junta todas esas variantes en un solo nombre.
+   No decide qué hacer con cada dato — eso es tarea de procesarCSV, porque
+   la decisión depende de si el libro ya existe o no en el catálogo. */
+function valorDe(r, ...nombres){
+  for(const n of nombres){
+    const v=(r[n]||'').toString().trim();
+    if(v) return v;
+  }
+  return '';
+}
+function extraerCampos(r){
+  const materias = valorDe(r,'Materias') ||
+    [valorDe(r,'Materia nivel 0'), valorDe(r,'Materia nivel 1')].filter(Boolean).join(' - ');
+  return {
+    isbn:      valorDe(r,'ISBN'),
+    titulo:    valorDe(r,'Título'),
+    autor:     valorDe(r,'Autor'),
+    editorial: valorDe(r,'Editorial','Nombre de la Editorial'),
+    pvpTxt:    valorDe(r,'PVP','Precio'),
+    stockTxt:  valorDe(r,'Stock Total','Cantidad en inventario al momento de la carga','Stock'),
+    materias,
+    coleccion: valorDe(r,'Colección'),
+    portada:   valorDe(r,'URL Tapa'),
+    sinopsis:  valorDe(r,'Reseña','Reseña breve'),
+  };
+}
+/* Traduce el texto de materias (crudo, del CSV) en categoría + los datos
+   que se derivan de él. Se usa tanto para libros nuevos como para
+   refrescar uno existente cuando el archivo sí trae esa columna. */
+function derivarDesdeMaterias(materias, destino){
+  const M=materias.toUpperCase();
+  destino.categoria = materias.startsWith('THEMA')
+    ? catThema(materias.split('->').map(x=>x.trim()))
+    : catLibre(M);
+  destino.materias_original = materias;
   const pais=[]; const sa=sinTildes(M);
   for(const k in PAISES) if(sa.includes('LITERATURA '+k)) pais.push(PAISES[k]);
+  destino.pais_idioma = pais;
   const mm = M.match(/SIGLO (XIX|XXI|XX|XVIII|XVII)/);
-  return {
-    id: isbn || ('__'+norm(titulo)+'|'+norm(autor)),
-    isbn: isbn||null, titulo, autor: autor||'Autor no especificado', editorial,
-    coleccion: coleccion||null, pvp, pvp_valido: pvp>0, stock_total: stock,
-    disponibilidad: stock<=0?'Agotado':stock<=2?'Últimas unidades':'Disponible',
-    categoria, pais_idioma: pais, epoca: mm?('Siglo '+mm[1]):null,
-    ilustrado: M.includes('ILUSTRADO'), materias_original: materias||null
-  };
+  destino.epoca = mm ? ('Siglo '+mm[1]) : null;
+  destino.ilustrado = M.includes('ILUSTRADO');
 }
 
 /* ---------- arranque ---------- */
@@ -1896,26 +1920,92 @@ document.getElementById('csv').addEventListener('change',e=>{
 function procesarCSV(filas){
   const mapa=new Map(CATALOGO.map(i=>[i.id,i]));
   const enCSV=new Set();
-  let nuevos=0,actualizados=0,descartados=0;
+  const tituloAIsbn=new Map(); // detecta si dos ISBN comparten el mismo título (ediciones distintas)
+  let nuevos=0, actualizados=0, descartados=0, sinDatosParaCrear=0, edicionesMultiples=0;
   const cambiados=[];
+
   for(const f of filas){
-    const l=limpiarFila(f);
-    if(!l){descartados++;continue;}
-    enCSV.add(l.id);
-    if(mapa.has(l.id)){Object.assign(mapa.get(l.id),l);actualizados++;cambiados.push(mapa.get(l.id));}
-    else {mapa.set(l.id,l);nuevos++;cambiados.push(l);}
+    const c=extraerCampos(f);
+    // La llave es siempre el ISBN. Solo si el archivo no trae ISBN se arma
+    // una llave con título+autor — igual que en la carga inicial. Nunca se
+    // agrupa por título solo, así que dos ISBN de una misma obra (dos
+    // ediciones) quedan siempre como dos fichas separadas.
+    const key = c.isbn || ((c.titulo && c.autor) ? '__'+norm(c.titulo)+'|'+norm(c.autor) : null);
+    if(!key){ descartados++; continue; }
+
+    let item = mapa.get(key);
+    if(!item){
+      // Título que no existe todavía: sin nombre y editorial no hay con qué
+      // crear una ficha (puede ser una fila de un reporte de solo precios
+      // que apunta a un ISBN que aún no conocemos).
+      if(!c.titulo || !c.editorial){ sinDatosParaCrear++; descartados++; continue; }
+      item = {
+        id:key, isbn:c.isbn||null, titulo:c.titulo, autor:c.autor||'Autor no especificado',
+        editorial:c.editorial, coleccion:c.coleccion||null,
+        pvp:0, pvp_valido:false, stock_total:0, disponibilidad:'Agotado',
+        categoria:'Sin clasificar', pais_idioma:[], epoca:null, ilustrado:false,
+        materias_original:null, portada_url:null, sinopsis:null,
+      };
+      mapa.set(key,item);
+      nuevos++;
+    } else {
+      actualizados++;
+    }
+    enCSV.add(key);
+
+    // Identidad: se corrige solo si esta fila trae el dato. Un reporte que
+    // solo trae ISBN+Precio+Stock no borra el título ni el autor que ya
+    // tenías.
+    if(c.titulo) item.titulo=c.titulo;
+    if(c.autor) item.autor=c.autor;
+    if(c.editorial) item.editorial=c.editorial;
+    if(c.coleccion) item.coleccion=c.coleccion;
+    if(!item.isbn && c.isbn) item.isbn=c.isbn;
+
+    // Inventario: es lo que cambia varias veces al día, así que se refresca
+    // con el último valor recibido — incluido el cero, que es un dato real
+    // (agotado / precio por confirmar), no un vacío.
+    if(c.pvpTxt!==''){
+      item.pvp=parseFloat(c.pvpTxt.replace('$','').replace(/,/g,'').trim())||0;
+      item.pvp_valido=item.pvp>0;
+    }
+    if(c.stockTxt!==''){
+      item.stock_total=parseInt(c.stockTxt)||0;
+    }
+    item.disponibilidad = item.stock_total<=0?'Agotado':item.stock_total<=2?'Últimas unidades':'Disponible';
+
+    // Categoría y materias: solo se recalculan si este archivo trae esa
+    // columna. Si hoy no la trae, se conserva la que ya tenía calculada de
+    // una carga anterior en vez de bajarla a "Sin clasificar".
+    if(c.materias) derivarDesdeMaterias(c.materias, item);
+
+    // Portada y sinopsis: SOLO se completan si todavía no existían. Pueden
+    // venir de una API (Open Library, Google Books) o de una corrección
+    // manual tuya, y una actualización de inventario nunca debe pisar ese
+    // trabajo — aunque el CSV de hoy traiga su propia URL o reseña.
+    if(c.portada && !item.portada_url){ item.portada_url=c.portada; item.fuente_enriquecimiento='csv'; }
+    if(c.sinopsis && !item.sinopsis){ item.sinopsis=c.sinopsis; item.fuente_sinopsis='csv'; }
+
+    cambiados.push(item);
+
+    const tn=norm(item.titulo);
+    if(tituloAIsbn.has(tn) && tituloAIsbn.get(tn)!==key) edicionesMultiples++;
+    tituloAIsbn.set(tn,key);
   }
+
   const conservados=[...mapa.keys()].filter(id=>!enCSV.has(id)).length;
   CATALOGO=[...mapa.values()]; indexar(); ultimaCarga=cambiados;
   construirChipsCat(); construirChipsPais(); pintarEditoriales();
   buscar(); filtrar(); pintarEstadoDatos();
+
   const r=document.getElementById('resumen-carga');
   r.hidden=false;
   r.innerHTML=`<strong>Carga procesada</strong><br>
     ${nuevos} título(s) nuevo(s)<br>
     ${actualizados} actualizado(s)<br>
     ${conservados} conservado(s) sin cambios (no venían en este archivo)<br>
-    ${descartados} fila(s) descartada(s) por datos incompletos`;
+    ${descartados} fila(s) descartada(s)${sinDatosParaCrear?` (${sinDatosParaCrear} sin título/editorial suficiente para crear una ficha nueva)`:''}
+    ${edicionesMultiples?`<br>${edicionesMultiples} título(s) detectado(s) con más de un ISBN — se conservan como fichas separadas`:''}`;
   document.getElementById('guardar-supabase').hidden = !sb;
 }
 document.getElementById('guardar-supabase').addEventListener('click',async()=>{
