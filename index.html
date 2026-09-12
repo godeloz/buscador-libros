@@ -435,6 +435,24 @@ select.orden{
 .cifra b{display:block;font-size:1.4rem;font-weight:700;letter-spacing:-0.02em;}
 .cifra span{font-size:0.79rem;color:var(--texto-3);}
 
+.progreso-guardado{
+  margin-top:14px;padding:14px 16px;
+  background:var(--surface-2);border-radius:var(--r-md);
+  font-size:0.88rem;color:var(--texto-2);line-height:1.6;
+}
+.progreso-guardado[hidden]{display:none;}
+.progreso-guardado .barra{
+  height:6px;background:rgba(120,120,128,0.18);border-radius:3px;
+  overflow:hidden;margin:8px 0 4px;
+}
+.progreso-guardado .barra i{display:block;height:100%;width:0;background:var(--azul);border-radius:3px;transition:width .25s var(--ease);}
+.progreso-guardado.con-fallos .barra i{background:var(--ambar);}
+.progreso-guardado .btn-reintentar{
+  margin-top:10px;padding:8px 16px;border-radius:var(--r-sm);
+  border:none;background:var(--azul-hondo);color:#fff;
+  font-size:0.85rem;font-weight:600;cursor:pointer;
+}
+
 .btn-lapiz{
   position:absolute;top:9px;right:9px;
   width:28px;height:28px;border-radius:50%;
@@ -721,6 +739,7 @@ footer.pie{margin-top:20px;background:var(--surface);border-top:1px solid var(--
         <button class="btn-primario" id="guardar-supabase" style="padding:11px 24px;" hidden>Guardar en Supabase</button>
         <button class="link-plano" id="descargar-json">Descargar catalogo.json</button>
       </div>
+      <div class="progreso-guardado" id="progreso-guardado-csv" hidden></div>
     </div>
 
     <div class="tarjeta-filtro">
@@ -746,6 +765,7 @@ footer.pie{margin-top:20px;background:var(--surface);border-top:1px solid var(--
       <div class="acciones-filtro" style="margin-top:16px;">
         <button class="btn-primario" id="guardar-enriq" style="padding:11px 24px;" hidden>Guardar en Supabase</button>
       </div>
+      <div class="progreso-guardado" id="progreso-guardado-enriq" hidden></div>
     </div>
 
     <div class="tarjeta-filtro">
@@ -1800,25 +1820,98 @@ function terminarPasada(){
   if(huboCambios) document.getElementById('guardar-enriq').hidden=!sb;
 }
 
+/* =========================================================
+   GUARDADO RESILIENTE POR LOTES
+   Se usa desde los tres botones "Guardar en Supabase" (carga de
+   CSV, portadas/sinopsis, y correcciones manuales). Si un lote
+   falla —por ejemplo, un corte de conexión a mitad de una subida
+   grande, como pasa con archivos de varios miles de títulos—
+   reintenta ese lote un par de veces antes de darlo por perdido,
+   y sigue con los demás en vez de abortar todo el guardado.
+   El upsert por id es seguro de repetir: reintentar un lote
+   nunca duplica ni corrompe nada.
+   ========================================================= */
+async function guardarLotesConReintentos(filas, {tam=500, intentos=3, onProgreso=()=>{}}={}){
+  const lotes=[];
+  for(let i=0;i<filas.length;i+=tam) lotes.push(filas.slice(i,i+tam));
+  let hechos=0; const fallidos=[];
+  for(let li=0; li<lotes.length; li++){
+    const lote=lotes[li];
+    let exito=false, ultimoError=null;
+    for(let intento=1; intento<=intentos && !exito; intento++){
+      try{
+        const {error}=await sb.from('catalogo_libros').upsert(lote,{onConflict:'id'});
+        if(error) throw error;
+        exito=true;
+      }catch(e){
+        ultimoError=e;
+        if(intento<intentos) await esperar(700*intento);
+      }
+    }
+    if(exito) hechos+=lote.length;
+    else fallidos.push({lote:li+1, filas:lote, error:ultimoError?.message||'error desconocido'});
+    onProgreso({hechos, total:filas.length, loteActual:li+1, totalLotes:lotes.length, fallidos:fallidos.length});
+  }
+  return {hechos, total:filas.length, totalLotes:lotes.length, fallidos};
+}
+/* Pinta el progreso y, si algo falló, deja un botón para reintentar
+   solo esos lotes — no hay que volver a cargar ni recalcular nada. */
+function pintarProgresoGuardado(contenedorId, resultado, alReintentar){
+  const el=document.getElementById(contenedorId);
+  el.hidden=false;
+  const nFallidos = Array.isArray(resultado.fallidos) ? resultado.fallidos.length : (resultado.fallidos||0);
+  const pct = resultado.total ? Math.round((resultado.hechos/resultado.total)*100) : 100;
+  el.classList.toggle('con-fallos', nFallidos>0);
+  el.innerHTML = `
+    <div>${resultado.hechos} de ${resultado.total} registros guardados${resultado.totalLotes>1?` (lote ${resultado.loteActual||resultado.totalLotes} de ${resultado.totalLotes})`:''}</div>
+    <div class="barra"><i style="width:${pct}%"></i></div>
+    ${nFallidos>0 ? `<div>${nFallidos} lote(s) no se pudieron guardar (seguramente por la conexión). El resto sí quedó guardado.</div>
+       <button class="btn-reintentar" id="btn-reintentar-${contenedorId}">Reintentar lo que falló</button>` : ''}
+  `;
+  if(nFallidos>0){
+    document.getElementById(`btn-reintentar-${contenedorId}`).addEventListener('click', alReintentar);
+  }
+}
+
 document.getElementById('guardar-enriq').addEventListener('click', async ()=>{
   if(!sb) return;
   const btn=document.getElementById('guardar-enriq');
+  const filas=CATALOGO.filter(x=>x.enriquecido_en||x.fuente_enriquecimiento)
+    .map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
+  await ejecutarGuardado(btn, filas, 'progreso-guardado-enriq');
+});
+async function ejecutarGuardado(btn, filas, contenedorId, onExitoTotal){
   btn.disabled=true; btn.textContent='Guardando…';
+  const intentarGuardar = async (lista)=>{
+    return guardarLotesConReintentos(lista, {onProgreso:p=>pintarProgresoGuardado(contenedorId, p, ()=>{})});
+  };
+  const reintentarSoloFallidos = async (fallidos, totalOriginal, yaHechos)=>{
+    btn.disabled=true; btn.textContent='Reintentando…';
+    const soloFallidas = fallidos.flatMap(f=>f.filas);
+    const r2 = await intentarGuardar(soloFallidas);
+    const hechosFinal = yaHechos + r2.hechos;
+    pintarProgresoGuardado(contenedorId, {hechos:hechosFinal, total:totalOriginal, totalLotes:1, fallidos:r2.fallidos.length},
+      ()=>reintentarSoloFallidos(r2.fallidos, totalOriginal, hechosFinal));
+    if(r2.fallidos.length===0){
+      btn.textContent='Guardado ✓'; setTimeout(()=>{btn.textContent='Guardar en Supabase';btn.disabled=false;},2500);
+      if(onExitoTotal) onExitoTotal();
+    } else { btn.textContent='Guardar en Supabase'; btn.disabled=false; }
+  };
   try{
-    const filas=CATALOGO.filter(x=>x.enriquecido_en||x.fuente_enriquecimiento)
-      .map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
-    for(let i=0;i<filas.length;i+=400){
-      const {error}=await sb.from('catalogo_libros').upsert(filas.slice(i,i+400),{onConflict:'id'});
-      if(error) throw error;
+    const resultado = await intentarGuardar(filas);
+    if(resultado.fallidos.length===0){
+      btn.textContent='Guardado ✓';
+      setTimeout(()=>{btn.textContent='Guardar en Supabase';btn.disabled=false;},2500);
+      if(onExitoTotal) onExitoTotal();
+    } else {
+      pintarProgresoGuardado(contenedorId, resultado, ()=>reintentarSoloFallidos(resultado.fallidos, resultado.total, resultado.hechos));
+      btn.textContent='Guardar en Supabase'; btn.disabled=false;
     }
-    btn.textContent='Guardado ✓';
-    log(`Guardados ${filas.length} registros en Supabase.`);
-    setTimeout(()=>{btn.textContent='Guardar en Supabase';btn.disabled=false;},2500);
   }catch(e){
     alert('No se pudo guardar: '+e.message);
     btn.textContent='Guardar en Supabase'; btn.disabled=false;
   }
-});
+}
 
 /* ---------- Editor de fichas (solo administrador) ---------- */
 const editados=new Set();
@@ -1891,23 +1984,19 @@ function mostrarPendientesGuardar(){
     document.body.appendChild(el);
   }
   el.innerHTML=`<span>${editados.size} ficha${editados.size===1?'':'s'} corregida${editados.size===1?'':'s'} sin guardar</span>
-    <button class="btn-primario" id="guardar-editados" style="padding:8px 16px;font-size:0.85rem;">Guardar en Supabase</button>`;
+    <button class="btn-primario" id="guardar-editados" style="padding:8px 16px;font-size:0.85rem;">Guardar en Supabase</button>
+    <div class="progreso-guardado" id="progreso-guardado-editados" hidden></div>`;
   document.getElementById('guardar-editados').addEventListener('click', guardarEditados);
 }
 async function guardarEditados(){
   if(!sb){ alert('Supabase no está configurado: usa “Descargar catalogo.json” en el panel Admin para conservar los cambios.'); return; }
   const btn=document.getElementById('guardar-editados');
-  btn.disabled=true; btn.textContent='Guardando…';
-  try{
-    const filas=CATALOGO.filter(x=>editados.has(x.id)).map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
-    const {error}=await sb.from('catalogo_libros').upsert(filas,{onConflict:'id'});
-    if(error) throw error;
-    editados.clear();
+  const idsGuardados=new Set(editados);
+  const filas=CATALOGO.filter(x=>idsGuardados.has(x.id)).map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
+  await ejecutarGuardado(btn, filas, 'progreso-guardado-editados', ()=>{
+    idsGuardados.forEach(id=>editados.delete(id));
     mostrarPendientesGuardar();
-  }catch(e){
-    alert('No se pudo guardar: '+e.message);
-    btn.disabled=false; btn.textContent='Guardar en Supabase';
-  }
+  });
 }
 
 /* ---------- carga de CSV ---------- */
@@ -2011,19 +2100,8 @@ function procesarCSV(filas){
 document.getElementById('guardar-supabase').addEventListener('click',async()=>{
   if(!sb||!ultimaCarga){alert('Primero carga un CSV.');return;}
   const btn=document.getElementById('guardar-supabase');
-  btn.disabled=true; btn.textContent='Guardando…';
-  try{
-    const limpio=ultimaCarga.map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
-    for(let i=0;i<limpio.length;i+=500){
-      const {error}=await sb.from('catalogo_libros').upsert(limpio.slice(i,i+500),{onConflict:'id'});
-      if(error) throw error;
-    }
-    btn.textContent='Guardado ✓';
-    setTimeout(()=>{btn.textContent='Guardar en Supabase';btn.disabled=false;},2500);
-  }catch(e){
-    alert('No se pudo guardar: '+e.message);
-    btn.textContent='Guardar en Supabase'; btn.disabled=false;
-  }
+  const limpio=ultimaCarga.map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
+  await ejecutarGuardado(btn, limpio, 'progreso-guardado-csv');
 });
 document.getElementById('descargar-json').addEventListener('click',()=>{
   const limpio=CATALOGO.map(({_t,_tn,_a,_e,_todo,gb_intentado,...r})=>r);
